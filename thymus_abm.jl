@@ -4,6 +4,7 @@ using InteractiveDynamics
 using GLMakie # Needed for abm_data_exploration, CairoMakie does not work correctly with it but does work for plots/videos
 using DrWatson: @dict
 using Statistics: mean
+using StatsBase # used to sample without replacement
 
 mutable struct Tec <: AbstractAgent
     id::Int
@@ -14,9 +15,8 @@ mutable struct Tec <: AbstractAgent
     color::String
     size::Int
     num_interactions::Int
-    antigen::String
+    antigens::Array
     age::Int
-    steps::Int
 end
 
 mutable struct Thymocyte <: AbstractAgent
@@ -29,7 +29,7 @@ mutable struct Thymocyte <: AbstractAgent
     size::Int
     num_interactions::Int
     tcr::String
-    steps::Int
+    age::Int
 end
 
 function initialize(;
@@ -39,11 +39,13 @@ function initialize(;
     n_thymocytes = 1000,
     dt=1.0,
     threshold = 0.8,
+    autoreactive_proportion = 0.5,
     rng_seed = 42)
 
     rng = MersenneTwister(rng_seed)
+    Random.seed!(rng)
 
-    antigens = [randstring(rng, 'A':'Z', 9) for i=1:18000]
+    genes = [randstring(rng, 'A':'T', 9) for i=1:45] # 'A':'T' represents the 20 amino acids
 
     space2d = ContinuousSpace(width_height, 0.02)
 
@@ -55,26 +57,27 @@ function initialize(;
         n_tecs,
         n_thymocytes,
         threshold,
-        antigens,
+        genes,
         interactions)
     
     model = ABM(Union{Tec, Thymocyte}, space2d; properties, rng,)
 
     # Add agents to the model
     id = 0
-    for _ in 1:n_tecs
+    for h in 1:n_tecs
         id += 1
         pos = Tuple(rand(model.rng, 2))
         vel = (0.0, 0.0)
-        tec = Tec(id, pos, vel, Inf, :tec, "#1f78b4", 40, 0, rand(model.rng, antigens), 0, 0)
+        antis = sample(model.rng, genes, 2, replace = false) # choose a sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        tec = Tec(id, pos, vel, Inf, :tec, "#1f78b4", 40, 0, antis, 0)
         add_agent!(tec, model)
     end
     for _ in 1:n_thymocytes
         id += 1
         pos = Tuple(rand(model.rng, 2))
         vel = sincos(2π * rand(model.rng)) .* model.speed
-        if rand(model.rng) > 0.5 # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes - probably add as model parameter
-            tcr = rand(model.rng, antigens)
+        if rand(model.rng) < autoreactive_proportion # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes
+            tcr = rand(model.rng, genes)
         else
             tcr = ""
         end
@@ -89,9 +92,9 @@ function cell_move!(agent::Union{Tec, Thymocyte}, model)
     if agent.type == :thymocyte
         move_agent!(agent, model, model.dt)
         # add randomness to thymocytes' movements so they don't continue in same direction forever - same could be done by adding thymocyte collisions
-        walk!(agent, (rand(model.rng, -1.0:1.0),rand(model.rng, -1.0:1.0)), model) 
+        #walk!(agent, (rand(model.rng, -1.0:1.0),rand(model.rng, -1.0:1.0)), model) # might be unnecessary; breaks for spaces larger than (1, 1)
     end
-    agent.steps += 1
+    agent.age += 1
 end
 
 ## Model steps
@@ -113,23 +116,17 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
 
     if thymocyte_agent.tcr == "" # check if non-autoreactive thymocyte - is this necessary?
         return
-    else
-        total_matches = 0 # compare tec antigen sequence to thymocyte TCR sequence
-#=         for i in tec_agent.antigen
-            for j in thymocyte_agent.tcr
-                if i == j
-                    total_matches += 1
-                end
-            end
-        end =#
+    else # compare a chosen tec antigen sequence to thymocyte TCR sequence
+        total_matches = 0 
+        antigen = rand(model.rng, tec_agent.antigens) # choose random antigen from tec's antigens to compare thymocyte tcr to
 
-        for i in range(1, length(tec_agent.antigen), step=1)
-            if tec_agent.antigen[i] == thymocyte_agent.tcr[i]
+        for i in range(1, length(antigen), step=1)
+            if antigen[i] == thymocyte_agent.tcr[i]
                 total_matches += 1
             end
         end
 
-        if total_matches / length(tec_agent.antigen) >= model.threshold # kill thymocyte if sequence matches are above model threshold
+        if total_matches / length(antigen) >= model.threshold # kill thymocyte if sequence matches are above model threshold
             kill_agent!(thymocyte_agent, model)
         end
     end
@@ -154,7 +151,7 @@ model = initialize(; width_height = (1, 1), n_tecs = 5, n_thymocytes = 500, spee
 cell_colors(a) = a.color
 cell_sizes(a) = a.size
 
-abm_video(
+#= abm_video(
     "thymus_abm.mp4",
     model,
     cell_move!,
@@ -166,21 +163,20 @@ abm_video(
     framerate = 20,
 )
 print(nagents(model) - model.n_tecs)
-print(" thymocytes remaining")
+print(" thymocytes remaining") =#
 
-is_tec(a) = a.type == :tec
 #mean_interactions_per_step(a) = mean(a) / a.steps # type error 
 
 tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
 
-adata = [(:num_interactions, mean, is_tec), (tec, count), (thymocyte, count)]
+adata = [(:num_interactions, mean, tec), (tec, count), (thymocyte, count)]
 alabels = ["mean of total tec interactions", "tec count", "thymocyte count"]
 
 #mdata = [nagents]
 #mlabels = ["agent count"]
 
-model2 = initialize(; width_height = (1, 1), n_tecs = 5, n_thymocytes = 500, speed = 0.002, threshold = 0.75)
+model2 = initialize(; width_height = (2, 2), n_tecs = 50, n_thymocytes = 500, speed = 0.002, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42)
 
 parange = Dict(:threshold => 0:0.01:1)
 
