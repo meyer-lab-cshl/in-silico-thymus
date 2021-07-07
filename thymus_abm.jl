@@ -7,29 +7,31 @@ using Statistics: mean
 using StatsBase # used to sample without replacement
 
 mutable struct Tec <: AbstractAgent
-    id::Int
-    pos::NTuple{2,Float64}
-    vel::NTuple{2,Float64}
-    mass::Float64
-    type::Symbol
-    color::String
-    size::Int
-    num_interactions::Int
-    antigens::Array
-    age::Int
+    id::Int                             # Unique ID to identify agent
+    pos::NTuple{2,Float64}              # 2D position of agent
+    vel::NTuple{2,Float64}              # 2D velocity of agent
+    mass::Float64                       # Mass of agent to use in collisions
+    type::Symbol                        # Cell type of agent
+    color::String                       # Color used for agent in videos
+    size::Int                           # Size of agent in videos
+    num_interactions::Int               # Total number of interactions agent has
+    antigens::Array                     # List of antigens the Tec agent contains
+    age::Int                            # Age of agent; incremented after n steps
+    just_aged::Bool                     # Boolean to determine if agent just aged on current model step
 end
 
 mutable struct Thymocyte <: AbstractAgent
-    id::Int
-    pos::NTuple{2,Float64}
-    vel::NTuple{2,Float64}
-    mass::Float64
-    type::Symbol
-    color::String
-    size::Int
-    num_interactions::Int
-    tcr::String
-    age::Int
+    id::Int                             # Unique ID to identify agent
+    pos::NTuple{2,Float64}              # 2D position of agent
+    vel::NTuple{2,Float64}              # 2D velocity of agent
+    mass::Float64                       # Mass of agent to use in collisions
+    type::Symbol                        # Cell type of agent
+    color::String                       # Color used for agent in videos
+    size::Int                           # Size of agent in videos
+    num_interactions::Int               # Total number of interactions agent has
+    tcr::String                         # TCR gene that the thymocyte agent is carrying
+    age::Int                            # Age of agent; incremented after n steps
+    just_aged::Bool                     # Boolean to determine if agent just aged on current model step
 end
 
 function initialize(;
@@ -70,7 +72,7 @@ function initialize(;
         pos = Tuple(rand(model.rng, 2))
         vel = (0.0, 0.0)
         antis = sample(model.rng, genes, 2, replace = false) # choose a sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(id, pos, vel, Inf, :tec, "#1f78b4", 40, 0, antis, 0)
+        tec = Tec(id, pos, vel, Inf, :tec, "#1f78b4", 40, 0, antis, 0, false)
         add_agent!(tec, model)
     end
     for _ in 1:n_thymocytes
@@ -82,7 +84,7 @@ function initialize(;
         else
             tcr = ""
         end
-        thymocyte = Thymocyte(id, pos, vel, 1.0, :thymocyte, "#fdbf6f", 10, 0, tcr, 0)
+        thymocyte = Thymocyte(id, pos, vel, 1.0, :thymocyte, "#fdbf6f", 10, 0, tcr, 0, false)
         add_agent!(thymocyte, model)
     end
     return model
@@ -126,7 +128,7 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
             end
         end
 
-        if total_matches / length(antigen) >= model.threshold # kill thymocyte if sequence matches are above model threshold
+        if total_matches / length(antigen) > model.threshold # kill thymocyte if sequence matches are above model threshold - (> or >=?)
             kill_agent!(thymocyte_agent, model)
         end
     end
@@ -140,9 +142,11 @@ function model_step!(model) # happens after every agent has acted
 
         if a1.num_interactions % 20 == 0 # increment age after every 20 of agent's interactions
             a1.age += 1
+            a1.just_aged = true
         end
         if a2.num_interactions % 20 == 0
             a2.age += 1
+            a2.just_aged = true
         end
     end
 
@@ -155,7 +159,7 @@ function model_step!(model) # happens after every agent has acted
         else
             tcr = ""
         end
-        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#fdbf6f", 10, 0, tcr, 0)
+        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#fdbf6f", 10, 0, tcr, 0, false)
         add_agent!(thymocyte, model)
     end
 
@@ -164,35 +168,25 @@ function model_step!(model) # happens after every agent has acted
         pos = Tuple(rand(model.rng, 2))
         vel = (0.0, 0.0)
         antis = sample(model.rng, model.genes, 2, replace = false) # choose a sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#1f78b4", 40, 0, antis, 0)
+        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#1f78b4", 40, 0, antis, 0, false)
         add_agent!(tec, model)
     end
 
     for agent in allagents(model) # kill agent if it reaches certain age
-        if agent.age >= 5
+        if (agent.age >= 14 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
             kill_agent!(agent, model)
+        end
+
+        if agent.type == :tec && agent.age != 0 && agent.age % 2 == 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
+            push!(agent.antigens, rand(model.rng, model.genes))
+            agent.just_aged = false
         end
     end
 end
 
-model = initialize(; width_height = (1, 1), n_tecs = 5, n_thymocytes = 500, speed = 0.001, threshold = 0.8)
 cell_colors(a) = a.color
 cell_sizes(a) = a.size
 cell_markers(a) = a.type == :thymocyte ? :circle : :diamond
-
-#= abm_video(
-    "thymus_abm.mp4",
-    model,
-    cell_move!,
-    model_step!;
-    frames = 1000,
-    ac = cell_colors,
-    as = cell_sizes,
-    spf = 1,
-    framerate = 20,
-)
-print(nagents(model) - model.n_tecs)
-print(" thymocytes remaining") =#
 
 #mean_interactions_per_step(a) = mean(a) / a.steps # type error 
 
@@ -209,6 +203,30 @@ model2 = initialize(; width_height = (2, 2), n_tecs = 50, n_thymocytes = 500, sp
 
 parange = Dict(:threshold => 0:0.01:1)
 
-figure, adf, mdf = abm_data_exploration(
+#= figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
-    as = cell_sizes, ac = cell_colors, am = cell_markers, adata = adata, alabels = alabels,)
+    as = cell_sizes, ac = cell_colors, am = cell_markers, adata = adata, alabels = alabels,) =#
+
+#= abm_video(
+    "thymus_abm2.mp4",
+    model2,
+    cell_move!,
+    model_step!;
+    frames = 1000,
+    ac = cell_colors,
+    as = cell_sizes,
+    spf = 1,
+    framerate = 20,
+) =#
+
+data, mdf = run!(model2, cell_move!, model_step!, 10000; adata = adata)
+
+x = data.step
+thy_data = data.count_thymocyte
+tec_data = data.count_tec
+figure = Figure(resolution = (600, 400))
+ax = figure[1, 1] = Axis(figure, xlabel = "steps", ylabel = "Count")
+lthy = lines!(ax, x, thy_data, color = :blue)
+ltec = lines!(ax, x, tec_data, color = :red)
+figure[1, 2] = Legend(figure, [lthy, ltec], ["Thymocytes", "Tecs"], textsize = 12)
+display(figure)
