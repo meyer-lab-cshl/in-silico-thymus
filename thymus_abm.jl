@@ -52,8 +52,11 @@ function initialize(;
     space2d = ContinuousSpace(width_height, 0.02)
 
     #interactions = zeros(n_tecs, n_thymocytes) # matrix to count thymocyte/tec interactions. cannot do this exactly if new agents are added over time - probably use some sort of list
+    successful_interactions = 0
+    unsuccessful_interactions = 0
 
     properties = @dict( # DrWatson @dict
+        width_height,
         speed,
         dt,
         n_tecs,
@@ -61,7 +64,9 @@ function initialize(;
         threshold,
         genes,
         #interactions,
-        autoreactive_proportion)
+        autoreactive_proportion,
+        successful_interactions,
+        unsuccessful_interactions)
     
     model = ABM(Union{Tec, Thymocyte}, space2d; properties, rng,)
 
@@ -71,21 +76,34 @@ function initialize(;
         id += 1
         pos = Tuple(rand(model.rng, 2))
         vel = (0.0, 0.0)
+        mass = Inf
+        color = "#1f78b4"
+        size = 40
+        num_interactions = 0
+        age = 0
+        just_aged = false
         antis = sample(model.rng, genes, 2, replace = false) # choose a sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(id, pos, vel, Inf, :tec, "#1f78b4", 40, 0, antis, 0, false)
+        tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
         add_agent!(tec, model)
     end
     for _ in 1:n_thymocytes
         id += 1
         pos = Tuple(rand(model.rng, 2))
         vel = sincos(2π * rand(model.rng)) .* model.speed
+        mass = 1.0
+        color = "#fdbf6f"
+        size = 10
+        num_interactions = 0
+        age = 0
+        just_aged = false
         if rand(model.rng) < autoreactive_proportion # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes
             tcr = rand(model.rng, genes)
         else
             tcr = ""
         end
-        thymocyte = Thymocyte(id, pos, vel, 1.0, :thymocyte, "#fdbf6f", 10, 0, tcr, 0, false)
+        thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, age, just_aged)
         add_agent!(thymocyte, model)
+        set_color!(thymocyte, model)
     end
     return model
 end
@@ -94,8 +112,21 @@ end
 function cell_move!(agent::Union{Tec, Thymocyte}, model)
     if agent.type == :thymocyte
         move_agent!(agent, model, model.dt)
+        set_color!(agent, model)
         # add randomness to thymocytes' movements so they don't continue in same direction forever - same could be done by adding thymocyte collisions
         #walk!(agent, (rand(model.rng, -1.0:1.0),rand(model.rng, -1.0:1.0)), model) # might be unnecessary; breaks for spaces larger than (1, 1)
+    end
+end
+
+function set_color!(agent::Union{Tec, Thymocyte}, model) # used to test accessing/modifying spatial properties
+    if agent.pos[1] <= model.width_height[1] / 2 && agent.pos[2] <= model.width_height[2] / 2
+        agent.color = "#FF0000"
+    elseif agent.pos[1] <= model.width_height[1] / 2 && agent.pos[2] <= model.width_height[2]
+        agent.color = "#00FF00"
+    elseif agent.pos[1] <= model.width_height[1] && agent.pos[2] <= model.width_height[2] / 2
+        agent.color = "#0000FF"
+    else
+        agent.color = "#FFFF00"
     end
 end
 
@@ -117,6 +148,7 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
     #model.interactions[tec_agent.id, thymocyte_agent.id - model.n_tecs] += 1 # subtract n_tecs from the thymocyte id to get thymocyte's matrix index
 
     if thymocyte_agent.tcr == "" # check if non-autoreactive thymocyte - is this necessary?
+        #model.unsuccessful_interactions += 1 # not necessarily an interaction if thymocyte is non-autoreactive
         return
     else # compare a chosen tec antigen sequence to thymocyte TCR sequence
         total_matches = 0 
@@ -130,21 +162,25 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
 
         if total_matches / length(antigen) > model.threshold # kill thymocyte if sequence matches are above model threshold - (> or >=?)
             kill_agent!(thymocyte_agent, model)
+            model.successful_interactions += 1
+        else
+            model.unsuccessful_interactions += 1
         end
     end
 end
 
 function model_step!(model) # happens after every agent has acted
-    for (a1, a2) in interacting_pairs(model, 0.06, :types) # check :all versus :nearest versus :types. 
+    interaction_radius = 0.06
+    for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types. 
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
         interact!(a1, a2, model)
         elastic_collision!(a1, a2, :mass)
 
-        if a1.num_interactions % 20 == 0 # increment age after every 20 of agent's interactions
+        if a1.num_interactions != 0 && a1.num_interactions % 20 == 0 # increment age after every 20 of agent's interactions
             a1.age += 1
             a1.just_aged = true
         end
-        if a2.num_interactions % 20 == 0
+        if a2.num_interactions != 0 && a2.num_interactions % 20 == 0
             a2.age += 1
             a2.just_aged = true
         end
@@ -196,16 +232,17 @@ thymocyte(a) = a.type == :thymocyte
 adata = [(:num_interactions, mean, tec), (tec, count), (thymocyte, count)]
 alabels = ["mean of total tec interactions", "tec count", "thymocyte count"]
 
-#mdata = [nagents]
-#mlabels = ["agent count"]
+mdata = [:unsuccessful_interactions]
+mlabels = ["unsuccessful interact count"]
 
-model2 = initialize(; width_height = (2, 2), n_tecs = 50, n_thymocytes = 500, speed = 0.002, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42)
+model2 = initialize(; width_height = (2, 2), n_tecs = 50, n_thymocytes = 500, speed = 0.004, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42)
 
 parange = Dict(:threshold => 0:0.01:1)
 
-#= figure, adf, mdf = abm_data_exploration(
+figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
-    as = cell_sizes, ac = cell_colors, am = cell_markers, adata = adata, alabels = alabels,) =#
+    as = cell_sizes, ac = cell_colors, am = cell_markers, adata = adata, alabels = alabels,
+    mdata = mdata, mlabels = mlabels)
 
 #= abm_video(
     "thymus_abm2.mp4",
@@ -219,7 +256,7 @@ parange = Dict(:threshold => 0:0.01:1)
     framerate = 20,
 ) =#
 
-data, mdf = run!(model2, cell_move!, model_step!, 10000; adata = adata)
+#= data, mdf = run!(model2, cell_move!, model_step!, 10000; adata = adata)
 
 x = data.step
 thy_data = data.count_thymocyte
@@ -229,4 +266,4 @@ ax = figure[1, 1] = Axis(figure, xlabel = "steps", ylabel = "Count")
 lthy = lines!(ax, x, thy_data, color = :blue)
 ltec = lines!(ax, x, tec_data, color = :red)
 figure[1, 2] = Legend(figure, [lthy, ltec], ["Thymocytes", "Tecs"], textsize = 12)
-display(figure)
+display(figure) =#
