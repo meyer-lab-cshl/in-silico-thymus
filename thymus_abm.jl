@@ -1,5 +1,5 @@
 using Base: Float64
-using Agents: length
+using Agents: length, isempty, getindex
 using Agents
 using Random
 using InteractiveDynamics
@@ -36,6 +36,7 @@ mutable struct Thymocyte <: AbstractAgent
     just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
     reaction_levels::Dict               # Dict to hold thymocyte's seen antigens and reaction levels to them
     autoreactive::Bool                  # Boolean to show if thymocyte is autoreactive (true) or not (false)
+    death_label::Bool                   # Label a thymocyte to be killed on its next step
 end
 
 function initialize(;
@@ -116,7 +117,7 @@ function initialize(;
             auto = false
             model.nonautoreactive_thymocytes += 1
         end
-        thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, age, just_aged, reaction_levels, auto)
+        thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, age, just_aged, reaction_levels, auto, false)
         add_agent!(thymocyte, model)
         set_color!(thymocyte, model)
     end
@@ -126,8 +127,12 @@ end
 ## Agent steps
 function cell_move!(agent::Union{Tec, Thymocyte}, model)
     if agent.type == :thymocyte
-        move_agent!(agent, model, model.dt)
-        set_color!(agent, model)
+        if agent.death_label == true # maybe weird to take care of agent death here, but doing it in interact! in model_step! sometimes causes key value errors - does this introduce any problems?
+            kill_agent!(agent, model)
+        else
+            move_agent!(agent, model, model.dt)
+            set_color!(agent, model)
+        end
         # add randomness to thymocytes' movements so they don't continue in same direction forever - same could be done by adding thymocyte collisions
         #walk!(agent, (rand(model.rng, -1.0:1.0),rand(model.rng, -1.0:1.0)), model) # might be unnecessary; breaks for spaces larger than (1, 1)
     end
@@ -186,7 +191,8 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
         end
 
         if thymocyte_agent.reaction_levels[antigen] > model.threshold # kill thymocyte if sequence matches are above model threshold - (> or >=?)
-            kill_agent!(thymocyte_agent, model)
+            #kill_agent!(thymocyte_agent, model)
+            thymocyte_agent.death_label = true
             model.successful_interactions += 1
             model.autoreactive_thymocytes -= 1
         else
@@ -197,13 +203,15 @@ end
 
 function model_step!(model) # happens after every agent has acted
     interaction_radius = 0.06
-    for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types. 
+    for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
-        if a1.num_interactions != 0 && a1.num_interactions % 20 == 0 # increment age after every 20 of agent's interactions
+        thresh1 = a1.type == :thymocyte ? 10 : 20
+        thresh2 = a2.type == :thymocyte ? 10 : 20
+        if a1.num_interactions != 0 && a1.num_interactions % thresh1 == 0 # increment age after every thresh of agent's interactions
             a1.age += 1
             a1.just_aged = true
         end
-        if a2.num_interactions != 0 && a2.num_interactions % 20 == 0
+        if a2.num_interactions != 0 && a2.num_interactions % thresh2 == 0
             a2.age += 1
             a2.just_aged = true
         end
@@ -211,18 +219,20 @@ function model_step!(model) # happens after every agent has acted
         elastic_collision!(a1, a2, :mass)
     end
 
-    if rand(model.rng) <= 0.002 # random chance to generate new thymocyte
+    if rand(model.rng) <= 0.15 # random chance to generate new thymocyte
         #model.n_thymocytes += 1
         pos = Tuple(rand(model.rng, 2))
         vel = sincos(2π * rand(model.rng)) .* model.speed
         if rand(model.rng) < model.autoreactive_proportion # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes
             tcr = rand(model.rng, model.genes)
             auto = true
+            model.autoreactive_thymocytes += 1
         else
             tcr = ""
             auto = false
+            model.nonautoreactive_thymocytes += 1
         end
-        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#fdbf6f", 10, 0, tcr, 0, false, Dict(), auto)
+        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#fdbf6f", 10, 0, tcr, 0, false, Dict(), auto, false)
         add_agent!(thymocyte, model)
         model.total_thymocytes += 1
     end
@@ -290,7 +300,7 @@ figure, adf, mdf = abm_data_exploration(
     model2,
     cell_move!,
     model_step!;
-    frames = 1000,
+    frames = 2000,
     ac = cell_colors,
     as = cell_sizes,
     spf = 1,
