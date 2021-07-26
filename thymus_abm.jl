@@ -50,7 +50,6 @@ function initialize(;
     rng_seed = 42)
 
     rng = MersenneTwister(rng_seed)
-    Random.seed!(rng)
 
     genes = [randstring(rng, 'A':'T', 9) for i=1:45] # 'A':'T' represents the 20 amino acids
 
@@ -202,7 +201,7 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
 end
 
 function model_step!(model) # happens after every agent has acted
-    interaction_radius = 0.06
+    interaction_radius = 0.05*model.width_height[1]
     for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
         thresh1 = a1.type == :thymocyte ? 10 : 20
@@ -286,7 +285,7 @@ escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes # proporti
 mdata = [:successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio]
 mlabels = ["successful_interact count", "unsuccessful interact count", "escaped thymocytes", "reactivity_ratio"]
 
-model2 = initialize(; width_height = (1, 1), n_tecs = 10, n_thymocytes = 1000, speed = 0.004, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42)
+model2 = initialize(; width_height = (1, 1), n_tecs = 10, n_thymocytes = 1000, speed = 0.045, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42)
 
 parange = Dict(:threshold => 0:0.01:1)
 
@@ -296,18 +295,18 @@ figure, adf, mdf = abm_data_exploration(
     mdata = mdata, mlabels = mlabels)
 
 #= abm_video(
-    "thymus_abm2.mp4",
+    "thymus_abm_vid.mp4",
     model2,
     cell_move!,
     model_step!;
-    frames = 2000,
+    frames = 200,
     ac = cell_colors,
     as = cell_sizes,
     spf = 1,
     framerate = 20,
 ) =#
 
-#= data, mdf = run!(model2, cell_move!, model_step!, 10000; adata = adata)
+#= data, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
 x = data.step
 thy_data = data.count_thymocyte
