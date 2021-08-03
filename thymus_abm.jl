@@ -58,7 +58,7 @@ function initialize(;
     #interactions = zeros(n_tecs, n_thymocytes) # matrix to count thymocyte/tec interactions. cannot do this exactly if new agents are added over time - probably use some sort of list
     successful_interactions = 0
     unsuccessful_interactions = 0
-
+    
     properties = @dict( # DrWatson @dict
         width_height,
         speed,
@@ -87,14 +87,17 @@ function initialize(;
         vel = (0.0, 0.0)
         mass = Inf
         color = "#00ffff"
-        size = 80
+        size = 90
         num_interactions = 0
-        age = 0
+        age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, genes, 2, replace = false) # choose a sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, genes, age+2, replace = false) # choose an (age+2) size sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
         add_agent!(tec, model)
+        set_color!(tec)
     end
+
+    autoreactive_counter = 0
     for _ in 1:n_thymocytes
         id += 1
         model.total_thymocytes += 1
@@ -104,13 +107,14 @@ function initialize(;
         color = "#006400"
         size = 15
         num_interactions = 0
-        age = 0
+        age = rand(model.rng, 0:3) # randomize starting ages
         just_aged = false
         reaction_levels = Dict{String, Float64}()
-        if rand(model.rng) < autoreactive_proportion # randomly determine thymocyte reactivity according to match with autoreactive_proportion
+        if autoreactive_counter < n_thymocytes * autoreactive_proportion # randomly determine thymocyte reactivity according to match with autoreactive_proportion
             tcr = rand(model.rng, genes)
             auto = true
             model.autoreactive_thymocytes += 1
+            autoreactive_counter += 1
         else
             tcr = ""
             auto = false
@@ -118,7 +122,7 @@ function initialize(;
         end
         thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, age, just_aged, reaction_levels, auto, false)
         add_agent!(thymocyte, model)
-        #set_color!(thymocyte, model)
+        set_color!(thymocyte)
     end
     return model
 end
@@ -134,7 +138,7 @@ function cell_move!(agent::Union{Tec, Thymocyte}, model)
         # add randomness to thymocytes' movements so they don't continue in same direction forever - same could be done by adding thymocyte collisions
         #walk!(agent, (rand(model.rng, -1.0:1.0),rand(model.rng, -1.0:1.0)), model) # might be unnecessary; breaks for spaces larger than (1, 1)
     end
-    set_color!(agent)
+    #set_color!(agent)
 end
 
 #= function set_color!(agent::Union{Tec, Thymocyte}, model) # used to test accessing/modifying spatial properties
@@ -150,16 +154,18 @@ end
 end =#
 function set_color!(agent::Union{Tec, Thymocyte})
     if agent.type == :tec
-        if agent.age > 0 && agent.age <= 4
-            agent.color = "#00ddff"
-        elseif agent.age > 0 && agent.age <= 8
-            agent.color = "#00aaff"
-        elseif agent.age > 0 && agent.age <= 12
-            agent.color = "#0011ff"
-        elseif agent.age > 0 && agent.age <= 16
-            agent.color = "#0044ff"
-        elseif agent.age > 0 && agent.age <= 20
-            agent.color = "#0088ff"
+        if agent.age > 0
+            if agent.age <= 4
+                agent.color = "#00ddff"
+            elseif agent.age <= 8
+                agent.color = "#00aaff"
+            elseif agent.age <= 12
+                agent.color = "#0011ff"
+            elseif agent.age <= 16
+                agent.color = "#0044ff"
+            elseif agent.age <= 20
+                agent.color = "#000000"
+            end
         end
     else
         #if agent.age == 1
@@ -224,28 +230,29 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
             model.unsuccessful_interactions += 1
         end
     end
+    thresh1 = a1.type == :thymocyte ? 10 : 20
+    thresh2 = a2.type == :thymocyte ? 10 : 20
+    if a1.num_interactions != 0 && a1.num_interactions % thresh1 == 0 # increment age after every thresh of agent's interactions
+        a1.age += 1
+        a1.just_aged = true
+        set_color!(a1)
+    end
+    if a2.num_interactions != 0 && a2.num_interactions % thresh2 == 0
+        a2.age += 1
+        a2.just_aged = true
+        set_color!(a2)
+    end
 end
 
 function model_step!(model) # happens after every agent has acted
     interaction_radius = 0.05*model.width_height[1]
     for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
-        thresh1 = a1.type == :thymocyte ? 10 : 20
-        thresh2 = a2.type == :thymocyte ? 10 : 20
-        if a1.num_interactions != 0 && a1.num_interactions % thresh1 == 0 # increment age after every thresh of agent's interactions
-            a1.age += 1
-            a1.just_aged = true
-        end
-        if a2.num_interactions != 0 && a2.num_interactions % thresh2 == 0
-            a2.age += 1
-            a2.just_aged = true
-        end
         interact!(a1, a2, model)
         elastic_collision!(a1, a2, :mass)
     end
 
     if rand(model.rng) <= 0.15 # random chance to generate new thymocyte
-        #model.n_thymocytes += 1
         pos = Tuple(rand(model.rng, 2))
         vel = sincos(2π * rand(model.rng)) .* model.speed
         if rand(model.rng) < model.autoreactive_proportion # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes
@@ -267,7 +274,7 @@ function model_step!(model) # happens after every agent has acted
         pos = Tuple(rand(model.rng, 2))
         vel = (0.0, 0.0)
         antis = sample(model.rng, model.genes, 2, replace = false) # choose a sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 80, 0, antis, 0, false)
+        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 90, 0, antis, 0, false)
         add_agent!(tec, model)
     end
 
@@ -286,7 +293,7 @@ function model_step!(model) # happens after every agent has acted
             end
         end
 
-        if agent.type == :tec && agent.age != 0 && agent.age % 2 == 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
+        if agent.type == :tec && agent.age != 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
             push!(agent.antigens, rand(model.rng, model.genes))
             agent.just_aged = false
         end
@@ -296,8 +303,6 @@ end
 cell_colors(a) = a.color
 cell_sizes(a) = a.size
 cell_markers(a) = a.type == :thymocyte ? :circle : :diamond
-
-#mean_interactions_per_step(a) = mean(a) / a.steps # type error 
 
 tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
