@@ -143,40 +143,24 @@ function cell_move!(agent::Union{Tec, Thymocyte}, model)
     if agent.type == :thymocyte
         if agent.death_label == true # maybe weird to take care of agent death here, but doing it in interact! in model_step! sometimes causes key value errors - does this introduce any problems?
             kill_agent!(agent, model)
-            # Fix movement under confinement below
-#=         elseif agent.confined == true
-            #agent.vel = agent.vel .* 0.5
-            # Needs to be fixed - some binded thymocytes get stuck. Probably constantly switching sign of velocity making them stuck in place
-            if agent.pos[1] >= agent.bind_location[1] + 0.5 && agent.pos[2] >= agent.bind_location[2] + 0.5
-                agent.vel = -1 .* agent.vel
-            elseif agent.pos[1] >= agent.bind_location[1] - 0.5 && agent.pos[2] >= agent.bind_location[2] + 0.5
-                agent.vel = -1 .* agent.vel
-            elseif agent.pos[1] >= agent.bind_location[1] + 0.5 && agent.pos[2] >= agent.bind_location[2] - 0.5
-                agent.vel = -1 .* agent.vel
-            elseif agent.pos[1] >= agent.bind_location[1] - 0.5 && agent.pos[2] >= agent.bind_location[2] - 0.5
-                agent.vel = -1 .* agent.vel
+            return
+            # Fix movement under confinement below? - some agents move back and forth over short distance
+        elseif agent.confined == true
+            if agent.pos[1] >= agent.bind_location[1] + 0.3 || agent.pos[2] >= agent.bind_location[2] + 0.3 || agent.pos[1] >= agent.bind_location[1] - 0.3 || agent.pos[2] >= agent.bind_location[2] - 0.3
+                if get_direction(agent.pos, agent.bind_location, model)[1] < 0 || get_direction(agent.pos, agent.bind_location, model)[2] < 0 
+                    agent.vel = -1 .* agent.vel
+                end
             end
-            move_agent!(agent, model, model.dt) =#
+            move_agent!(agent, model, model.dt)
         else
             move_agent!(agent, model, model.dt)
         end
-        # add randomness to thymocytes' movements so they don't continue in same direction forever - same could be done by adding thymocyte collisions
-        #walk!(agent, (rand(model.rng, -1.0:1.0),rand(model.rng, -1.0:1.0)), model) # might be unnecessary; breaks for spaces larger than (1, 1)
+        # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much?
+        walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
     end
     #set_color!(agent)
 end
 
-#= function set_color!(agent::Union{Tec, Thymocyte}, model) # used to test accessing/modifying spatial properties
-    if agent.pos[1] <= model.width_height[1] / 2 && agent.pos[2] <= model.width_height[2] / 2
-        agent.color = "#FF0000"
-    elseif agent.pos[1] <= model.width_height[1] / 2 && agent.pos[2] <= model.width_height[2]
-        agent.color = "#00FF00"
-    elseif agent.pos[1] <= model.width_height[1] && agent.pos[2] <= model.width_height[2] / 2
-        agent.color = "#0000FF"
-    else
-        agent.color = "#FFFF00"
-    end
-end =#
 function set_color!(agent::Union{Tec, Thymocyte})
     if agent.type == :tec
         if agent.age > 0
@@ -195,7 +179,9 @@ function set_color!(agent::Union{Tec, Thymocyte})
     else
         if agent.confined == true
             agent.color = "#ffff00"
-        else
+        elseif agent.autoreactive == true
+            agent.color = "#ff0000"
+#=         else
         #if agent.age == 1
         #    agent.color = "#ffff00"
         #elseif agent.age == 2
@@ -204,7 +190,7 @@ function set_color!(agent::Union{Tec, Thymocyte})
                 agent.color = "#ff0000"
             elseif agent.age == 4
                 agent.color = "#7f00ff"
-            end
+            end =#
         end
     end
 end
@@ -221,10 +207,7 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
         return
     end
 
-
     thymocyte_agent.num_interactions += 1
-
-    #model.interactions[tec_agent.id, thymocyte_agent.id - model.n_tecs] += 1 # subtract n_tecs from the thymocyte id to get thymocyte's matrix index
 
     if thymocyte_agent.tcr == "" # check if non-autoreactive thymocyte - is this necessary?
         #model.unsuccessful_interactions += 1 # not necessarily an interaction if thymocyte is non-autoreactive
@@ -253,12 +236,13 @@ function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
             #kill_agent!(thymocyte_agent, model)
             if rand(model.rng) > 0.5
                 thymocyte_agent.death_label = true
+                model.autoreactive_thymocytes -= 1
             else
                 thymocyte_agent.confined = true
                 thymocyte_agent.bind_location = thymocyte_agent.pos
+                thymocyte_agent.vel = 0.5 .* thymocyte_agent.vel
             end
             model.successful_interactions += 1
-            model.autoreactive_thymocytes -= 1
             tec_agent.num_interactions += 1 # only increment if successful interaction w/ a reactive thymocyte?
         else
             if thymocyte_agent.reaction_levels[antigen] >= model.treg_threshold && thymocyte_agent.reaction_levels[antigen] < model.threshold
@@ -309,7 +293,7 @@ function model_step!(model) # happens after every agent has acted
     if model.tecs_present < model.n_tecs # generate new tec if one dies
         model.tecs_present += 1
         overlap = true
-        while overlap == true # should be good to make sure new tecs don't overlap an existing tec - could be infinite loop or very long as less positions are available
+        while overlap == true # should be good to make sure new tecs don't overlap an existing tec - could be infinite loop or very long as less positions are available - though should never infinite loop if always replacing a dead one
             pos = Tuple(rand(model.rng, 2))
             for a in nearby_ids(pos, model, model.width_height[1]/2)
                 if getindex(model, a).type == :tec
@@ -366,9 +350,9 @@ react_ratio(model) = model.autoreactive_thymocytes/model.nonautoreactive_thymocy
 escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes # proportion of escaped thymocutes to total thymocytes that appeared in simulation - should approach a constant
 
 mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio]
-mlabels = ["number of tregs", "successful_interact count", "unsuccessful interact count", "escaped thymocytes", "reactivity_ratio"]
+mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "reactivity_ratio"]
 
-model2 = initialize(; width_height = (1, 1), n_tecs = 10, n_thymocytes = 1000, speed = 0.005, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42, treg_threshold = 0.6)
+model2 = initialize(; width_height = (2, 2), n_tecs = 10, n_thymocytes = 1000, speed = 0.005, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
@@ -387,8 +371,8 @@ figure, adf, mdf = abm_data_exploration(
     as = cell_sizes,
     spf = 1,
     framerate = 20,
-) =#
-
+)
+ =#
 #= data, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
 x = data.step
