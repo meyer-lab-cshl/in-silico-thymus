@@ -22,6 +22,20 @@ mutable struct Tec <: AbstractAgent
     just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
 end
 
+mutable struct Dendritic <: AbstractAgent
+    id::Int                             # Unique ID to identify agent
+    pos::NTuple{2,Float64}              # 2D position of agent
+    vel::NTuple{2,Float64}              # 2D velocity of agent
+    mass::Float64                       # Mass of agent to use in collisions
+    type::Symbol                        # Cell type of agent
+    color::String                       # Color used for agent in videos
+    size::Int                           # Size of agent in videos
+    num_interactions::Int               # Total number of interactions agent has
+    antigens::Array                     # List of antigens the Tec agent contains
+    age::Int                            # Age of agent; incremented after n steps
+    just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
+end
+
 mutable struct Thymocyte <: AbstractAgent
     id::Int                             # Unique ID to identify agent
     pos::NTuple{2,Float64}              # 2D position of agent
@@ -47,6 +61,7 @@ function initialize(;
     speed = 0.002,
     n_tecs = 50,
     n_thymocytes = 1000,
+    n_dendritics = 50,
     dt=1.0,
     threshold = 0.8,
     treg_threshold = 0.6,
@@ -68,6 +83,7 @@ function initialize(;
         dt,
         n_tecs,
         n_thymocytes,
+        n_dendritics,
         threshold,
         genes,
         autoreactive_proportion,
@@ -81,7 +97,7 @@ function initialize(;
         num_tregs = 0,
         tecs_present = n_tecs) # ideally some easier, built-in way to keep track of this
     
-    model = ABM(Union{Tec, Thymocyte}, space2d; properties, rng,)
+    model = ABM(Union{Tec, Dendritic, Thymocyte}, space2d; properties, rng,)
 
     # Add agents to the model
     id = 0
@@ -102,6 +118,25 @@ function initialize(;
         tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
         add_agent!(tec, model)
         set_color!(tec)
+    end
+
+    for _ in 1:n_dendritics
+        id += 1
+        pos = Tuple(rand(model.rng, 2))
+        if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs/dendritics don't overlap
+            pos = Tuple(rand(model.rng, 2))
+        end
+        vel = (0.0, 0.0)
+        mass = Inf
+        color = "#ffa500"
+        size = 90
+        num_interactions = 0
+        age = rand(model.rng, 0:19) # randomize starting ages
+        just_aged = false
+        antis = sample(model.rng, genes, 1, replace = false) # choose 1 antigen for DC
+        dc = Dendritic(id, pos, vel, mass, :dendritic, color, size, num_interactions, antis, age, just_aged)
+        add_agent!(dc, model)
+        #set_color!(dc)
     end
 
     autoreactive_counter = 0
@@ -139,12 +174,12 @@ function initialize(;
 end
 
 ## Agent steps
-function cell_move!(agent::Union{Tec, Thymocyte}, model)
+function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
     if agent.type == :thymocyte
         if agent.death_label == true # maybe weird to take care of agent death here, but doing it in interact! in model_step! sometimes causes key value errors - does this introduce any problems?
             kill_agent!(agent, model)
             return
-            # Fix movement under confinement below? - some agents move back and forth over short distance
+            # Fix movement under confinement below? - some agents move back and forth over short distance - confine around location that thymocyte binded or location of binding tec or is that the same thing?
         elseif agent.confined == true
             if agent.pos[1] >= agent.bind_location[1] + 0.3 || agent.pos[2] >= agent.bind_location[2] + 0.3 || agent.pos[1] >= agent.bind_location[1] - 0.3 || agent.pos[2] >= agent.bind_location[2] - 0.3
                 if get_direction(agent.pos, agent.bind_location, model)[1] < 0 || get_direction(agent.pos, agent.bind_location, model)[2] < 0 
@@ -155,13 +190,13 @@ function cell_move!(agent::Union{Tec, Thymocyte}, model)
         else
             move_agent!(agent, model, model.dt)
         end
-        # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much?
-        walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
+        # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much? fixes confinement movement though, but increases their velocity
+        #walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
     end
     #set_color!(agent)
 end
 
-function set_color!(agent::Union{Tec, Thymocyte})
+function set_color!(agent::Union{Tec, Dendritic, Thymocyte})
     if agent.type == :tec
         if agent.age > 0
             if agent.age <= 4
@@ -176,31 +211,23 @@ function set_color!(agent::Union{Tec, Thymocyte})
                 agent.color = "#000000"
             end
         end
-    else
+    elseif agent.type == :thymocyte
         if agent.confined == true
             agent.color = "#ffff00"
         elseif agent.autoreactive == true
             agent.color = "#ff0000"
-#=         else
-        #if agent.age == 1
-        #    agent.color = "#ffff00"
-        #elseif agent.age == 2
-        #    agent.color = "#ffa500"
-            if agent.age == 3
-                agent.color = "#ff0000"
-            elseif agent.age == 4
-                agent.color = "#7f00ff"
-            end =#
         end
+    else
+        return
     end
 end
 
 ## Model steps
-function interact!(a1::Union{Tec, Thymocyte}, a2::Union{Tec, Thymocyte}, model)
-    if a1.type == :tec && a2.type == :thymocyte # if tec/thymocyte collide, they can interact. relabel them here for simplicity
+function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
+    if (a1.type == :tec || a1.type == :dendritic) && a2.type == :thymocyte # if tec/thymocyte collide, they can interact. relabel them here for simplicity
         tec_agent = a1
         thymocyte_agent = a2
-    elseif a1.type == :thymocyte && a2.type == :tec
+    elseif a1.type == :thymocyte && (a2.type == :tec || a2.type == :dendritic)
         tec_agent = a2
         thymocyte_agent = a1
     else
@@ -296,7 +323,7 @@ function model_step!(model) # happens after every agent has acted
         while overlap == true # should be good to make sure new tecs don't overlap an existing tec - could be infinite loop or very long as less positions are available - though should never infinite loop if always replacing a dead one
             pos = Tuple(rand(model.rng, 2))
             for a in nearby_ids(pos, model, model.width_height[1]/2)
-                if getindex(model, a).type == :tec
+                if getindex(model, a).type == :tec || getindex(model, a).type == :dendritic
                     break
                 end
                 overlap = false
@@ -336,8 +363,15 @@ end
 
 cell_colors(a) = a.color
 cell_sizes(a) = a.size
-cell_markers(a) = a.type == :thymocyte ? :circle : :diamond
-
+function cell_markers(a)
+    if a.type == :thymocyte
+        return :circle
+    elseif a.type == :tec
+        return :star5
+    else
+        return :diamond
+    end
+end
 tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
 
@@ -352,7 +386,9 @@ escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes # proporti
 mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio]
 mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "reactivity_ratio"]
 
-model2 = initialize(; width_height = (2, 2), n_tecs = 10, n_thymocytes = 1000, speed = 0.005, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42, treg_threshold = 0.6)
+dims = (1, 1)
+agent_speed = 0.005 * dims[1]
+model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
@@ -371,8 +407,8 @@ figure, adf, mdf = abm_data_exploration(
     as = cell_sizes,
     spf = 1,
     framerate = 20,
-)
- =#
+) =#
+
 #= data, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
 x = data.step
