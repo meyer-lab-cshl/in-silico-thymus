@@ -31,7 +31,7 @@ mutable struct Dendritic <: AbstractAgent
     color::String                       # Color used for agent in videos
     size::Int                           # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
-    antigens::Array                     # List of antigens the Tec agent contains
+    antigens::Array                     # List of antigens the Dendritic agent contains
     age::Int                            # Age of agent; incremented after n steps
     just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
 end
@@ -45,15 +45,15 @@ mutable struct Thymocyte <: AbstractAgent
     color::String                       # Color used for agent in videos
     size::Int                           # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
-    tcr::String                         # TCR gene that the thymocyte agent is carrying
+    tcr::String                         # TCR that the thymocyte agent is carrying
     age::Int                            # Age of agent; incremented after n steps
     just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
     reaction_levels::Dict               # Dict to hold thymocyte's seen antigens and reaction levels to them
     autoreactive::Bool                  # Boolean to show if thymocyte is autoreactive (true) or not (false)
     death_label::Bool                   # Label a thymocyte to be killed on its next step
-    confined::Bool
-    bind_location::NTuple{2,Float64}
-    treg::Bool
+    confined::Bool                      # Boolean if the thymocyte has been confined by an APC
+    bind_location::NTuple{2,Float64}    # Location of binding w/ APC that led to confinement
+    treg::Bool                          # Boolean if thymocyte meets Treg threshold or not
 end
 
 function initialize(;
@@ -70,7 +70,7 @@ function initialize(;
 
     rng = MersenneTwister(rng_seed)
 
-    genes = [randstring(rng, 'A':'T', 9) for i=1:45] # 'A':'T' represents the 20 amino acids
+    possible_antigens = [randstring(rng, 'A':'T', 9) for i=1:45] # 'A':'T' represents the 20 amino acids
 
     space2d = ContinuousSpace(width_height, 0.02)
 
@@ -85,7 +85,7 @@ function initialize(;
         n_thymocytes,
         n_dendritics,
         threshold,
-        genes,
+        possible_antigens,
         autoreactive_proportion,
         successful_interactions,
         unsuccessful_interactions,
@@ -114,7 +114,7 @@ function initialize(;
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, genes, age+2, replace = false) # choose an (age+2) size sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, possible_antigens, age+2, replace = false) # choose an (age+2) size sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
         add_agent!(tec, model)
         set_color!(tec)
@@ -133,7 +133,7 @@ function initialize(;
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, genes, 1, replace = false) # choose 1 antigen for DC
+        antis = sample(model.rng, possible_antigens, 1, replace = false) # choose 1 antigen for DC
         dc = Dendritic(id, pos, vel, mass, :dendritic, color, size, num_interactions, antis, age, just_aged)
         add_agent!(dc, model)
         #set_color!(dc)
@@ -153,7 +153,7 @@ function initialize(;
         just_aged = false
         reaction_levels = Dict{String, Float64}()
         if autoreactive_counter < n_thymocytes * autoreactive_proportion # randomly determine thymocyte reactivity according to match with autoreactive_proportion
-            tcr = rand(model.rng, genes)
+            tcr = rand(model.rng, possible_antigens)
             auto = true
             model.autoreactive_thymocytes += 1
             autoreactive_counter += 1
@@ -193,7 +193,7 @@ function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
         # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much? fixes confinement movement though, but increases their velocity
         #walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
     end
-    #set_color!(agent)
+    set_color!(agent)
 end
 
 function set_color!(agent::Union{Tec, Dendritic, Thymocyte})
@@ -304,7 +304,7 @@ function model_step!(model) # happens after every agent has acted
         pos = Tuple(rand(model.rng, 2))
         vel = sincos(2π * rand(model.rng)) .* model.speed
         if rand(model.rng) < model.autoreactive_proportion # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes
-            tcr = rand(model.rng, model.genes)
+            tcr = rand(model.rng, model.possible_antigens)
             auto = true
             model.autoreactive_thymocytes += 1
         else
@@ -330,7 +330,7 @@ function model_step!(model) # happens after every agent has acted
             end
         end
         vel = (0.0, 0.0)
-        antis = sample(model.rng, model.genes, 2, replace = false) # choose a sample from genes to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, model.possible_antigens, 2, replace = false) # choose a sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 90, 0, antis, 0, false)
         add_agent!(tec, model)
     end
@@ -355,7 +355,7 @@ function model_step!(model) # happens after every agent has acted
         end
 
         if agent.type == :tec && agent.age != 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
-            push!(agent.antigens, rand(model.rng, model.genes))
+            push!(agent.antigens, rand(model.rng, model.possible_antigens))
             agent.just_aged = false
         end
     end
