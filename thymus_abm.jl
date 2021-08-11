@@ -4,9 +4,9 @@ using Agents
 using Random
 using InteractiveDynamics
 using GLMakie # Needed for abm_data_exploration, CairoMakie does not work correctly with it but does work for plots/videos
-using DrWatson: @dict
 using Statistics: mean
 using StatsBase # used to sample without replacement
+using BenchmarkTools
 
 mutable struct Tec <: AbstractAgent
     id::Int                             # Unique ID to identify agent
@@ -56,6 +56,27 @@ mutable struct Thymocyte <: AbstractAgent
     treg::Bool                          # Boolean if thymocyte meets Treg threshold or not
 end
 
+Base.@kwdef mutable struct Parameters
+    width_height::NTuple{2,Int} = width_height
+    speed::Float64 = speed
+    dt::Float64 = dt
+    n_tecs::Int = n_tecs
+    n_thymocytes::Int = n_thymocytes
+    n_dendritics::Int = n_dendritics
+    threshold::Float64 = threshold
+    possible_antigens::Array = possible_antigens
+    autoreactive_proportion::Float64 = autoreactive_proportion
+    successful_interactions::Int = successful_interactions
+    unsuccessful_interactions::Int = unsuccessful_interactions
+    escaped_thymocytes::Int = 0
+    autoreactive_thymocytes::Int = 0
+    nonautoreactive_thymocytes::Int = 0
+    total_thymocytes::Int = 0
+    treg_threshold::Float64 = treg_threshold
+    num_tregs::Int = 0
+    tecs_present::Int = n_tecs
+end
+
 function initialize(;
     width_height = (1, 1),
     speed = 0.002,
@@ -77,25 +98,13 @@ function initialize(;
     successful_interactions = 0
     unsuccessful_interactions = 0
     
-    properties = @dict( # DrWatson @dict
-        width_height,
-        speed,
-        dt,
-        n_tecs,
-        n_thymocytes,
-        n_dendritics,
-        threshold,
-        possible_antigens,
-        autoreactive_proportion,
-        successful_interactions,
-        unsuccessful_interactions,
-        escaped_thymocytes = 0,
-        autoreactive_thymocytes = 0,
-        nonautoreactive_thymocytes = 0,
-        total_thymocytes = 0,
-        treg_threshold,
-        num_tregs = 0,
-        tecs_present = n_tecs) # ideally some easier, built-in way to keep track of this
+    escaped_thymocytes = 0
+    autoreactive_thymocytes = 0
+    nonautoreactive_thymocytes = 0
+    total_thymocytes = 0
+    num_tregs = 0
+    properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, possible_antigens, autoreactive_proportion, successful_interactions, unsuccessful_interactions, escaped_thymocytes,
+     autoreactive_thymocytes, nonautoreactive_thymocytes, total_thymocytes, treg_threshold, num_tregs, n_tecs)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space2d; properties, rng,)
 
@@ -388,14 +397,14 @@ mlabels = ["number of tregs", "successful interactions ", "unsuccessful interact
 
 dims = (1, 1)
 agent_speed = 0.005 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = 42, treg_threshold = 0.6)
+model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
-#= figure, adf, mdf = abm_data_exploration(
+figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, am = cell_markers, adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels) =#
+    mdata = mdata, mlabels = mlabels)
 
 #= abm_video(
     "thymus_abm_vid.mp4",
@@ -422,11 +431,12 @@ figure[1, 2] = Legend(figure, [lthy, ltec], ["Thymocytes", "Tecs"], textsize = 1
 display(figure) =#
 
 # Runs model ensemble (in this case w/ different RNG seeds for each) and plots average thymocyte count over across all models over time
-models = [initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = x, treg_threshold = 0.6) for x in rand(UInt8, 3)];
+#= num_ensembles = 3
+models = [initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = x, treg_threshold = 0.6) for x in rand(UInt8, num_ensembles)];
 adf, mdf = ensemblerun!(models, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
 
-# Make each ensemble data an individual element in a vector
-dfs = [adf[in([i]).(adf.ensemble), :] for i in range(1,3; step=1)]
+# Make each ensemble adf data an individual element in a vector
+dfs = [adf[in([i]).(adf.ensemble), :] for i in range(1,num_ensembles; step=1)]
 
 # Takes mean of the ensemble-seperated vector for all data in it
 dfs_mean = reduce(.+, dfs) ./ length(dfs)
@@ -438,4 +448,4 @@ figure = Figure(resolution = (600, 400))
 ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Mean Count")
 lthy = lines!(ax, x, thy_data, color = :blue)
 figure[1, 2] = Legend(figure, [lthy], ["Thymocytes"], textsize = 12)
-display(figure)
+display(figure) =#
