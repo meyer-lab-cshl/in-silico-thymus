@@ -242,7 +242,7 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
     else # compare a chosen tec antigen sequence to thymocyte TCR sequence
         # choose random antigen from tec's antigens to compare thymocyte tcr to. any matching characters in same position will increase reaction level to antigen.
         # if a reaction level passes the model threshold, the thymocyte is killed
-        total_matches = 0 
+        total_matches = 0
         antigen = rand(model.rng, tec_agent.antigens)
 
         for i in range(1, length(antigen), step=1)
@@ -392,10 +392,10 @@ model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thy
 
 parange = Dict(:threshold => 0:0.01:1)
 
-figure, adf, mdf = abm_data_exploration(
+#= figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, am = cell_markers, adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels)
+    mdata = mdata, mlabels = mlabels) =#
 
 #= abm_video(
     "thymus_abm_vid.mp4",
@@ -420,3 +420,22 @@ lthy = lines!(ax, x, thy_data, color = :blue)
 ltec = lines!(ax, x, tec_data, color = :red)
 figure[1, 2] = Legend(figure, [lthy, ltec], ["Thymocytes", "Tecs"], textsize = 12)
 display(figure) =#
+
+# Runs model ensemble (in this case w/ different RNG seeds for each) and plots average thymocyte count over across all models over time
+models = [initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1, rng_seed = x, treg_threshold = 0.6) for x in rand(UInt8, 3)];
+adf, mdf = ensemblerun!(models, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
+
+# Make each ensemble data an individual element in a vector
+dfs = [adf[in([i]).(adf.ensemble), :] for i in range(1,3; step=1)]
+
+# Takes mean of the ensemble-seperated vector for all data in it
+dfs_mean = reduce(.+, dfs) ./ length(dfs)
+
+# Plot relevant data
+x = dfs_mean.step
+thy_data = dfs_mean.count_thymocyte
+figure = Figure(resolution = (600, 400))
+ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Mean Count")
+lthy = lines!(ax, x, thy_data, color = :blue)
+figure[1, 2] = Legend(figure, [lthy], ["Thymocytes"], textsize = 12)
+display(figure)
