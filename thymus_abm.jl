@@ -57,7 +57,7 @@ mutable struct Thymocyte <: AbstractAgent
 end
 
 Base.@kwdef mutable struct Parameters
-    width_height::NTuple{2,Int} = width_height
+    width_height::NTuple{2,Float64} = width_height
     speed::Float64 = speed
     dt::Float64 = dt
     n_tecs::Int = n_tecs
@@ -78,7 +78,7 @@ Base.@kwdef mutable struct Parameters
 end
 
 function initialize(;
-    width_height = (1, 1),
+    width_height = (1.0, 1.0),
     speed = 0.002,
     n_tecs = 50,
     n_thymocytes = 1000,
@@ -119,7 +119,7 @@ function initialize(;
         vel = (0.0, 0.0)
         mass = Inf
         color = "#00ffff"
-        size = 90
+        size = 95
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
@@ -138,7 +138,7 @@ function initialize(;
         vel = (0.0, 0.0)
         mass = Inf
         color = "#ffa500"
-        size = 90
+        size = 95
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
@@ -183,52 +183,56 @@ function initialize(;
 end
 
 ## Agent steps
-function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
-    if agent.type == :thymocyte
-        if agent.death_label == true # maybe weird to take care of agent death here, but doing it in interact! in model_step! sometimes causes key value errors - does this introduce any problems?
-            kill_agent!(agent, model)
-            return
-            # Fix movement under confinement below? - some agents move back and forth over short distance - confine around location that thymocyte binded or location of binding tec or is that the same thing?
-        elseif agent.confined == true
-            if agent.pos[1] >= agent.bind_location[1] + 0.3 || agent.pos[2] >= agent.bind_location[2] + 0.3 || agent.pos[1] >= agent.bind_location[1] - 0.3 || agent.pos[2] >= agent.bind_location[2] - 0.3
-                if get_direction(agent.pos, agent.bind_location, model)[1] < 0 || get_direction(agent.pos, agent.bind_location, model)[2] < 0 
-                    agent.vel = -1 .* agent.vel
-                end
+function cell_move!(agent::Thymocyte, model)
+    if agent.death_label == true # maybe weird to take care of agent death here, but doing it in interact! in model_step! sometimes causes key value errors - does this introduce any problems?
+        kill_agent!(agent, model)
+        return
+        # Fix movement under confinement below? - some agents move back and forth over short distance - confine around location that thymocyte binded or location of binding tec or is that the same thing?
+    elseif agent.confined == true
+        if agent.pos[1] >= agent.bind_location[1] + 0.3 || agent.pos[2] >= agent.bind_location[2] + 0.3 || agent.pos[1] >= agent.bind_location[1] - 0.3 || agent.pos[2] >= agent.bind_location[2] - 0.3
+            if get_direction(agent.pos, agent.bind_location, model)[1] < 0 || get_direction(agent.pos, agent.bind_location, model)[2] < 0 
+                agent.vel = -1 .* agent.vel
             end
-            move_agent!(agent, model, model.dt)
-        else
-            move_agent!(agent, model, model.dt)
         end
-        # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much? fixes confinement movement though, but increases their velocity
-        #walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
+        move_agent!(agent, model, model.dt)
+    else
+        move_agent!(agent, model, model.dt)
     end
+    # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much? fixes confinement movement though, but increases their velocity
+    #walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
     set_color!(agent)
 end
 
-function set_color!(agent::Union{Tec, Dendritic, Thymocyte})
-    if agent.type == :tec
-        if agent.age > 0
-            if agent.age <= 4
-                agent.color = "#00ddff"
-            elseif agent.age <= 8
-                agent.color = "#00aaff"
-            elseif agent.age <= 12
-                agent.color = "#0011ff"
-            elseif agent.age <= 16
-                agent.color = "#0044ff"
-            elseif agent.age <= 20
-                agent.color = "#000000"
-            end
-        end
-    elseif agent.type == :thymocyte
-        if agent.confined == true
-            agent.color = "#ffff00"
-        elseif agent.autoreactive == true
-            agent.color = "#ff0000"
-        end
-    else
-        return
+function cell_move!(agent::Union{Tec, Dendritic}, model)
+    set_color!(agent)
+end
+
+function set_color!(agent::Thymocyte)
+    if agent.confined == true
+        agent.color = "#ffff00"
+    elseif agent.autoreactive == true
+        agent.color = "#ff0000"
     end
+end
+
+function set_color!(agent::Tec)
+    if agent.age > 0
+        if agent.age <= 4
+            agent.color = "#00ddff"
+        elseif agent.age <= 8
+            agent.color = "#00aaff"
+        elseif agent.age <= 12
+            agent.color = "#0011ff"
+        elseif agent.age <= 16
+            agent.color = "#0044ff"
+        elseif agent.age <= 20
+            agent.color = "#000000"
+        end
+    end
+end
+
+function set_color!(agent::Dendritic)
+    return
 end
 
 ## Model steps
@@ -340,7 +344,7 @@ function model_step!(model) # happens after every agent has acted
         end
         vel = (0.0, 0.0)
         antis = sample(model.rng, model.possible_antigens, 2, replace = false) # choose a sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 90, 0, antis, 0, false)
+        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 95, 0, antis, 0, false)
         add_agent!(tec, model)
     end
 
@@ -372,15 +376,10 @@ end
 
 cell_colors(a) = a.color
 cell_sizes(a) = a.size
-function cell_markers(a)
-    if a.type == :thymocyte
-        return :circle
-    elseif a.type == :tec
-        return :star5
-    else
-        return :diamond
-    end
-end
+cell_markers(a::Thymocyte) = :circle
+cell_markers(a::Tec) = :star5
+cell_markers(a::Dendritic) = :diamond
+
 tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
 
@@ -395,7 +394,7 @@ escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes # proporti
 mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio]
 mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "reactivity_ratio"]
 
-dims = (1, 1)
+dims = (1.0, 1.0)
 agent_speed = 0.005 * dims[1]
 model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
@@ -403,6 +402,7 @@ parange = Dict(:threshold => 0:0.01:1)
 
 figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
+
     as = cell_sizes, ac = cell_colors, am = cell_markers, adata = adata, alabels = alabels,
     mdata = mdata, mlabels = mlabels)
 
@@ -417,6 +417,8 @@ figure, adf, mdf = abm_data_exploration(
     spf = 1,
     framerate = 20,
 ) =#
+
+#@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
 #= data, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
