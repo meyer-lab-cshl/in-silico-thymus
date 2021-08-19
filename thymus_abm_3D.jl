@@ -402,7 +402,6 @@ model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thy
 
 parange = Dict(:threshold => 0:0.01:1)
 
-as(agent) = 0.1 + 0.1 # temporary until better values can be found
 figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
