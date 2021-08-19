@@ -15,7 +15,7 @@ mutable struct Tec <: AbstractAgent
     mass::Float64                       # Mass of agent to use in collisions
     type::Symbol                        # Cell type of agent
     color::String                       # Color used for agent in videos
-    size::Int                           # Size of agent in videos
+    size::Float64                           # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     antigens::Array                     # List of antigens the Tec agent contains
     age::Int                            # Age of agent; incremented after n steps
@@ -29,7 +29,7 @@ mutable struct Dendritic <: AbstractAgent
     mass::Float64                       # Mass of agent to use in collisions
     type::Symbol                        # Cell type of agent
     color::String                       # Color used for agent in videos
-    size::Int                           # Size of agent in videos
+    size::Float64                           # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     antigens::Array                     # List of antigens the Dendritic agent contains
     age::Int                            # Age of agent; incremented after n steps
@@ -43,7 +43,7 @@ mutable struct Thymocyte <: AbstractAgent
     mass::Float64                       # Mass of agent to use in collisions
     type::Symbol                        # Cell type of agent
     color::String                       # Color used for agent in videos
-    size::Int                           # Size of agent in videos
+    size::Float64                           # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     tcr::String                         # TCR that the thymocyte agent is carrying
     age::Int                            # Age of agent; incremented after n steps
@@ -93,7 +93,7 @@ function initialize(;
 
     possible_antigens = [randstring(rng, 'A':'T', 9) for i=1:45] # 'A':'T' represents the 20 amino acids
 
-    space2d = ContinuousSpace(width_height, 0.02)
+    space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
 
     successful_interactions = 0
     unsuccessful_interactions = 0
@@ -106,7 +106,7 @@ function initialize(;
     properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, possible_antigens, autoreactive_proportion, successful_interactions, unsuccessful_interactions, escaped_thymocytes,
      autoreactive_thymocytes, nonautoreactive_thymocytes, total_thymocytes, treg_threshold, num_tregs, n_tecs)
     
-    model = ABM(Union{Tec, Dendritic, Thymocyte}, space2d; properties, rng,)
+    model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
 
     # Add agents to the model
     id = 0
@@ -119,7 +119,7 @@ function initialize(;
         vel = (0.0, 0.0, 0.0)
         mass = Inf
         color = "#00ffff"
-        size = 95
+        size = 0.5
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
@@ -138,7 +138,7 @@ function initialize(;
         vel = (0.0, 0.0, 0.0)
         mass = Inf
         color = "#ffa500"
-        size = 95
+        size = 0.5
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
@@ -156,7 +156,7 @@ function initialize(;
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,tan(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
         color = "#006400"
-        size = 15
+        size = 0.2
         num_interactions = 0
         age = rand(model.rng, 0:3) # randomize starting ages
         just_aged = false
@@ -322,7 +322,7 @@ function model_step!(model) # happens after every agent has acted
             auto = false
             model.nonautoreactive_thymocytes += 1
         end
-        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#006400", 15, 0, tcr, 0, false, Dict(), auto, false, false, (0.0,0.0,0.0), false)
+        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#006400", 0.2, 0, tcr, 0, false, Dict(), auto, false, false, (0.0,0.0,0.0), false)
         add_agent!(thymocyte, model)
         model.total_thymocytes += 1
     end
@@ -341,7 +341,7 @@ function model_step!(model) # happens after every agent has acted
         end
         vel = (0.0, 0.0, 0.0)
         antis = sample(model.rng, model.possible_antigens, 2, replace = false) # choose a sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 95, 0, antis, 0, false)
+        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 0.5, 0, antis, 0, false)
         add_agent!(tec, model)
     end
 
@@ -396,12 +396,13 @@ escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes # proporti
 mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio]
 mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "reactivity_ratio"]
 
-dims = (1.0, 1.0, 1.0)
+dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.005 * dims[1]
 model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
+as(agent) = 0.1 + 0.1 # temporary until better values can be found
 figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
