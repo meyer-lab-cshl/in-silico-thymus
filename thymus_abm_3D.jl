@@ -15,7 +15,7 @@ mutable struct Tec <: AbstractAgent
     mass::Float64                       # Mass of agent to use in collisions
     type::Symbol                        # Cell type of agent
     color::String                       # Color used for agent in videos
-    size::Float64                           # Size of agent in videos
+    size::Float64                       # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     antigens::Array                     # List of antigens the Tec agent contains
     age::Int                            # Age of agent; incremented after n steps
@@ -29,7 +29,7 @@ mutable struct Dendritic <: AbstractAgent
     mass::Float64                       # Mass of agent to use in collisions
     type::Symbol                        # Cell type of agent
     color::String                       # Color used for agent in videos
-    size::Float64                           # Size of agent in videos
+    size::Float64                       # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     antigens::Array                     # List of antigens the Dendritic agent contains
     age::Int                            # Age of agent; incremented after n steps
@@ -43,7 +43,7 @@ mutable struct Thymocyte <: AbstractAgent
     mass::Float64                       # Mass of agent to use in collisions
     type::Symbol                        # Cell type of agent
     color::String                       # Color used for agent in videos
-    size::Float64                           # Size of agent in videos
+    size::Float64                       # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     tcr::String                         # TCR that the thymocyte agent is carrying
     age::Int                            # Age of agent; incremented after n steps
@@ -153,7 +153,7 @@ function initialize(;
         id += 1
         model.total_thymocytes += 1
         pos = Tuple(rand(model.rng, 3))
-        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,tan(2π * rand(model.rng)) .* model.speed)
+        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
         color = "#006400"
         size = 0.2
@@ -312,7 +312,7 @@ function model_step!(model) # happens after every agent has acted
 
     if rand(model.rng) <= 0.15 # random chance to generate new thymocyte
         pos = Tuple(rand(model.rng, 3))
-        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,tan(2π * rand(model.rng)) .* model.speed)
+        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         if rand(model.rng) < model.autoreactive_proportion # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes
             tcr = rand(model.rng, model.possible_antigens)
             auto = true
