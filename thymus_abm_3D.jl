@@ -302,6 +302,26 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
     end
 end
 
+using LinearAlgebra
+function collide!(a, b)
+    # using http://www.hakenberg.de/diffgeo/collision_resolution.htm without any angular information
+    v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
+    r1 = x1 .- x2
+    r2 = x2 .- x1
+    m1, m2 = a.mass, b.mass
+    m1 == m2 == Inf && return false
+    if m1 == Inf
+        dot(r1, v2) ≤ 0 && return false
+    elseif m2 == Inf
+        dot(r2, v1) ≤ 0 && return false
+    else
+        !(dot(r2, v1) > 0 && dot(r2, v1) > 0) && return false
+    end
+    n = (a.pos .- b.pos) ./ (sqrt((a.pos[1] - b.pos[1])^2 + (a.pos[2] - b.pos[2])^2 + (a.pos[3] - b.pos[3])^2))
+    λ = 2 .* ((dot(a.vel, n) - dot(b.vel, n)) / (dot((1/a.mass + 1/b.mass) .* n, n)))
+    a.vel = a.vel .- (λ/a.mass).*n
+    b.vel = b.vel .+ (λ/b.mass).*n
+end
 #= using LinearAlgebra
 function collide!(a, b)
     # Modify Agents.jl elastic_collision! to attempt to make it work in 3D
@@ -333,26 +353,6 @@ function collide!(a, b)
     b.vel = v2 .- f2 .* (dot(v2 .- v1, r2) / n) .* (r2)
     return true
 end =#
-using LinearAlgebra
-function collide!(a, b)
-    # using http://www.hakenberg.de/diffgeo/collision_resolution.htm without any angular information
-    v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
-    r1 = x1 .- x2
-    r2 = x2 .- x1
-    m1, m2 = a.mass, b.mass
-    m1 == m2 == Inf && return false
-    if m1 == Inf
-        dot(r1, v2) ≤ 0 && return false
-    elseif m2 == Inf
-        dot(r2, v1) ≤ 0 && return false
-    else
-        !(dot(r2, v1) > 0 && dot(r2, v1) > 0) && return false
-    end
-    n = (a.pos .- b.pos) ./ (sqrt((a.pos[1] - b.pos[1])^2 + (a.pos[2] - b.pos[2])^2 + (a.pos[3] - b.pos[3])^2))
-    λ = 2 .* ((dot(a.vel, n) - dot(b.vel, n)) / (dot((1/a.mass + 1/b.mass) .* n, n)))
-    a.vel = a.vel .- (λ/a.mass).*n
-    b.vel = b.vel .+ (λ/b.mass).*n
-end
 
 function model_step!(model) # happens after every agent has acted
     interaction_radius = 0.1*model.width_height[1]
