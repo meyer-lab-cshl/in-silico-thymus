@@ -302,12 +302,65 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
     end
 end
 
+#= using LinearAlgebra
+function collide!(a, b)
+    # Modify Agents.jl elastic_collision! to attempt to make it work in 3D
+    v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
+    r1 = x1 .- x2
+    r2 = x2 .- x1
+    m1, m2 = a.mass, b.mass
+    m1 == m2 == Inf && return false
+    if m1 == Inf
+        @assert v1 == (0, 0, 0) "An agent with ∞ mass cannot have nonzero velocity"
+        dot(r1, v2) ≤ 0 && return false
+        v1 = ntuple(x -> zero(eltype(v1)), length(v1))
+        f1, f2 = 0.0, 2.0
+    elseif m2 == Inf
+        @assert v2 == (0, 0, 0) "An agent with ∞ mass cannot have nonzero velocity"
+        dot(r2, v1) ≤ 0 && return false
+        v2 = ntuple(x -> zero(eltype(v1)), length(v1))
+        f1, f2 = 2.0, 0.0
+    else
+        # Check if disks face each other, to avoid double collisions
+        !(dot(r2, v1) > 0 && dot(r2, v1) > 0) && return false
+        f1 = (2m2 / (m1 + m2))
+        f2 = (2m1 / (m1 + m2))
+    end
+    dx = a.pos .- b.pos
+    n = norm(dx)^2
+    n == 0 && return false # do nothing if they are at the same position
+    a.vel = v1 .- f1 .* (dot(v1 .- v2, r1) / n) .* (r1)
+    b.vel = v2 .- f2 .* (dot(v2 .- v1, r2) / n) .* (r2)
+    return true
+end =#
+using LinearAlgebra
+function collide!(a, b)
+    # using http://www.hakenberg.de/diffgeo/collision_resolution.htm without any angular information
+    v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
+    r1 = x1 .- x2
+    r2 = x2 .- x1
+    m1, m2 = a.mass, b.mass
+    m1 == m2 == Inf && return false
+    if m1 == Inf
+        dot(r1, v2) ≤ 0 && return false
+    elseif m2 == Inf
+        dot(r2, v1) ≤ 0 && return false
+    else
+        !(dot(r2, v1) > 0 && dot(r2, v1) > 0) && return false
+    end
+    n = (a.pos .- b.pos) ./ (sqrt((a.pos[1] - b.pos[1])^2 + (a.pos[2] - b.pos[2])^2 + (a.pos[3] - b.pos[3])^2))
+    λ = 2 .* ((dot(a.vel, n) - dot(b.vel, n)) / (dot((1/a.mass + 1/b.mass) .* n, n)))
+    a.vel = a.vel .- (λ/a.mass).*n
+    b.vel = b.vel .+ (λ/b.mass).*n
+end
+
 function model_step!(model) # happens after every agent has acted
-    interaction_radius = 0.05*model.width_height[1]
+    interaction_radius = 0.1*model.width_height[1]
     for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
         interact!(a1, a2, model)
         #elastic_collision!(a1, a2, :mass)
+        collide!(a1, a2)
     end
 
     if rand(model.rng) <= 0.15 # random chance to generate new thymocyte
@@ -398,7 +451,7 @@ mlabels = ["number of tregs", "successful interactions ", "unsuccessful interact
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.005 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
+model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 100, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
