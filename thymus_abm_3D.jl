@@ -275,9 +275,11 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
                 thymocyte_agent.death_label = true
                 model.autoreactive_thymocytes -= 1
             else
-                thymocyte_agent.confined = true
-                thymocyte_agent.bind_location = thymocyte_agent.pos
-                thymocyte_agent.vel = 0.5 .* thymocyte_agent.vel
+                if thymocyte_agent.confined == false
+                    thymocyte_agent.confined = true
+                    thymocyte_agent.bind_location = thymocyte_agent.pos
+                    thymocyte_agent.vel = 0.5 .* thymocyte_agent.vel
+                end
             end
             model.successful_interactions += 1
             tec_agent.num_interactions += 1 # only increment if successful interaction w/ a reactive thymocyte?
@@ -399,7 +401,7 @@ function model_step!(model) # happens after every agent has acted
     end
 
     for agent in allagents(model) # kill agent if it reaches certain age and update model properties depending on agent type/properties
-        if (agent.age >= 20 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
+        if (agent.age >= 1 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
             if agent.type == :thymocyte
                 if agent.autoreactive == true
                     model.escaped_thymocytes += 1
@@ -413,6 +415,7 @@ function model_step!(model) # happens after every agent has acted
                 end
             else
                 model.tecs_present -= 1
+                println("Tec killed")
             end
             kill_agent!(agent, model)
         end
@@ -451,7 +454,7 @@ mlabels = ["number of tregs", "successful interactions ", "unsuccessful interact
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.005 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 100, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
+model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
