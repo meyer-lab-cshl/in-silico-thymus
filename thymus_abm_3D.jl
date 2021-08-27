@@ -7,6 +7,8 @@ using GLMakie # Needed for abm_data_exploration, CairoMakie does not work correc
 using Statistics: mean
 using StatsBase # used to sample without replacement
 using BenchmarkTools
+using DelimitedFiles
+using NamedArrays
 
 mutable struct Tec <: AbstractAgent
     id::Int                             # Unique ID to identify agent
@@ -75,6 +77,7 @@ Base.@kwdef mutable struct Parameters
     treg_threshold::Float64 = treg_threshold
     num_tregs::Int = 0
     tecs_present::Int = n_tecs
+    aa_matrix::NamedArray = aa_matrix
 end
 
 function initialize(;
@@ -91,7 +94,7 @@ function initialize(;
 
     rng = MersenneTwister(rng_seed)
 
-    possible_antigens = [randstring(rng, 'A':'T', 9) for i=1:45] # 'A':'T' represents the 20 amino acids
+    possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
 
     space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
 
@@ -103,8 +106,12 @@ function initialize(;
     nonautoreactive_thymocytes = 0
     total_thymocytes = 0
     num_tregs = 0
+    # Data from Derivation of an amino acid similarity matrix for peptide:MHC binding and its application as a Bayesian prior
+    aa_data, header = readdlm("/home/mulle/Downloads/12859_2009_3124_MOESM2_ESM.MAT", header=true)
+    aa_matrix = NamedArray(aa_data, (vec(header), vec(header)), ("Rows", "Cols"))
+
     properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, possible_antigens, autoreactive_proportion, successful_interactions, unsuccessful_interactions, escaped_thymocytes,
-     autoreactive_thymocytes, nonautoreactive_thymocytes, total_thymocytes, treg_threshold, num_tregs, n_tecs)
+     autoreactive_thymocytes, nonautoreactive_thymocytes, total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
 
@@ -252,16 +259,16 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
     else # compare a chosen tec antigen sequence to thymocyte TCR sequence
         # choose random antigen from tec's antigens to compare thymocyte tcr to. any matching characters in same position will increase reaction level to antigen.
         # if a reaction level passes the model threshold, the thymocyte is killed
-        total_matches = 0
         antigen = rand(model.rng, tec_agent.antigens)
 
+        reaction = 0.0
         for i in range(1, length(antigen), step=1)
-            if antigen[i] == thymocyte_agent.tcr[i]
-                total_matches += 1
-            end
+            antigen_aa = string(antigen[i])
+            tcr_aa = string(thymocyte_agent.tcr[i])
+            reaction += model.aa_matrix[antigen_aa, tcr_aa]
         end
         
-        reaction = total_matches / length(antigen) # strength of reaction
+        #reaction = total_matches / length(antigen) # strength of reaction
 
         if get(thymocyte_agent.reaction_levels, antigen, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
             thymocyte_agent.reaction_levels[antigen] += reaction
@@ -307,6 +314,7 @@ end
 using LinearAlgebra
 function collide!(a, b)
     # using http://www.hakenberg.de/diffgeo/collision_resolution.htm without any angular information
+    # Same check to prevent double collisions from Agents.jl elastic_collision function
     v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
     r1 = x1 .- x2
     r2 = x2 .- x1
@@ -319,11 +327,14 @@ function collide!(a, b)
     else
         !(dot(r2, v1) > 0 && dot(r2, v1) > 0) && return false
     end
-    n = (a.pos .- b.pos) ./ (sqrt((a.pos[1] - b.pos[1])^2 + (a.pos[2] - b.pos[2])^2 + (a.pos[3] - b.pos[3])^2))
-    λ = 2 .* ((dot(a.vel, n) - dot(b.vel, n)) / (dot((1/a.mass + 1/b.mass) .* n, n)))
-    a.vel = a.vel .- (λ/a.mass).*n
-    b.vel = b.vel .+ (λ/b.mass).*n
+
+    # Calculate results of elastic collision
+    n = (a.pos .- b.pos) ./ (sqrt((a.pos[1] - b.pos[1])^2 + (a.pos[2] - b.pos[2])^2 + (a.pos[3] - b.pos[3])^2)) # unit normal vector
+    λ = 2 .* ((dot(a.vel, n) - dot(b.vel, n)) / (dot((1/a.mass + 1/b.mass) .* n, n))) # lambda parameter from website
+    a.vel = a.vel .- (λ/a.mass).*n # update velocity a
+    b.vel = b.vel .+ (λ/b.mass).*n # update velocity b
 end
+
 #= using LinearAlgebra
 function collide!(a, b)
     # Modify Agents.jl elastic_collision! to attempt to make it work in 3D
@@ -357,7 +368,7 @@ function collide!(a, b)
 end =#
 
 function model_step!(model) # happens after every agent has acted
-    interaction_radius = 0.1*model.width_height[1]
+    interaction_radius = 0.09*model.width_height[1]
     for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
         interact!(a1, a2, model)
@@ -401,7 +412,7 @@ function model_step!(model) # happens after every agent has acted
     end
 
     for agent in allagents(model) # kill agent if it reaches certain age and update model properties depending on agent type/properties
-        if (agent.age >= 1 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
+        if (agent.age >= 20 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
             if agent.type == :thymocyte
                 if agent.autoreactive == true
                     model.escaped_thymocytes += 1
@@ -415,7 +426,6 @@ function model_step!(model) # happens after every agent has acted
                 end
             else
                 model.tecs_present -= 1
-                println("Tec killed")
             end
             kill_agent!(agent, model)
         end
@@ -490,21 +500,21 @@ figure[1, 2] = Legend(figure, [lthy, ltec], ["Thymocytes", "Tecs"], textsize = 1
 display(figure) =#
 
 # Runs model ensemble (in this case w/ different RNG seeds for each) and plots average thymocyte count over across all models over time
-#= num_ensembles = 3
+#= num_ensembles = 5
 models = [initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = x, treg_threshold = 0.6) for x in rand(UInt8, num_ensembles)];
 adf, mdf = ensemblerun!(models, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
 
 # Make each ensemble adf data an individual element in a vector
-dfs = [adf[in([i]).(adf.ensemble), :] for i in range(1,num_ensembles; step=1)]
+dfs = [mdf[in([i]).(mdf.ensemble), :] for i in range(1,num_ensembles; step=1)]
 
 # Takes mean of the ensemble-seperated vector for all data in it
 dfs_mean = reduce(.+, dfs) ./ length(dfs)
 
 # Plot relevant data
 x = dfs_mean.step
-thy_data = dfs_mean.count_thymocyte
+thy_data = dfs_mean.react_ratio
 figure = Figure(resolution = (600, 400))
-ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Mean Count")
+ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "React Ratio")
 lthy = lines!(ax, x, thy_data, color = :blue)
-figure[1, 2] = Legend(figure, [lthy], ["Thymocytes"], textsize = 12)
+figure[1, 2] = Legend(figure, [lthy], ["React Ratio"], textsize = 12)
 display(figure) =#
