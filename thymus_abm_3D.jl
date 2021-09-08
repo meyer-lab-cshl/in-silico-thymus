@@ -3,7 +3,7 @@ using Agents: length, isempty, getindex
 using Agents
 using Random
 using InteractiveDynamics
-using GLMakie # Needed for abm_data_exploration, CairoMakie does not work correctly with it but does work for plots/videos
+using GLMakie # GLMakie needed for abm_data_exploration, CairoMakie does not work correctly with it but does work for plots/videos
 using Statistics: mean
 using StatsBase # used to sample without replacement
 using BenchmarkTools
@@ -94,7 +94,10 @@ function initialize(;
 
     rng = MersenneTwister(rng_seed)
 
-    possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
+    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/validpeptides.txt",'\n')[1:45]
+    shuffle!(possible_antigens)
+
+    #possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
 
     space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
 
@@ -169,7 +172,7 @@ function initialize(;
         just_aged = false
         reaction_levels = Dict{String, Float64}()
         if autoreactive_counter < n_thymocytes * autoreactive_proportion # randomly determine thymocyte reactivity according to match with autoreactive_proportion
-            tcr = rand(model.rng, possible_antigens)
+            tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
             auto = true
             model.autoreactive_thymocytes += 1
             autoreactive_counter += 1
@@ -257,7 +260,7 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
         #model.unsuccessful_interactions += 1 # not necessarily an interaction if thymocyte is non-autoreactive
         return
     else # compare a chosen tec antigen sequence to thymocyte TCR sequence
-        # choose random antigen from tec's antigens to compare thymocyte tcr to. any matching characters in same position will increase reaction level to antigen.
+        # choose random antigen from tec's antigens to compare thymocyte tcr to. use aa_matrix to retrieve stength of interaction, comparing characters one by one
         # if a reaction level passes the model threshold, the thymocyte is killed
         antigen = rand(model.rng, tec_agent.antigens)
 
@@ -312,7 +315,7 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
 end
 
 using LinearAlgebra
-function collide!(a, b)
+function collide!(a::Union{Tec, Dendritic, Thymocyte}, b::Union{Tec, Dendritic, Thymocyte})
     # using http://www.hakenberg.de/diffgeo/collision_resolution.htm without any angular information
     # Same check to prevent double collisions from Agents.jl elastic_collision function
     v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
@@ -380,7 +383,7 @@ function model_step!(model) # happens after every agent has acted
         pos = Tuple(rand(model.rng, 3))
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         if rand(model.rng) < model.autoreactive_proportion # set proportion of autoreactive vs non-autoreactive (empty string) thymocytes
-            tcr = rand(model.rng, model.possible_antigens)
+            tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
             auto = true
             model.autoreactive_thymocytes += 1
         else
@@ -439,7 +442,7 @@ end
 
 cell_colors(a) = a.color
 cell_sizes(a) = a.size
-function cell_markers(a)
+function cell_markers(a::Union{Tec, Dendritic, Thymocyte})
     if a.type == :thymocyte
         return :circle
     elseif a.type == :tec
@@ -451,10 +454,10 @@ end
 tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
 
-#adata = [(tec, count), (thymocyte, count)]
-#alabels = ["tec count", "thymocyte count"]
-adata = [(thymocyte, count)]
-alabels = ["thymocyte count"]
+adata = [(tec, count), (thymocyte, count)]
+alabels = ["tec count", "thymocyte count"]
+#adata = [(thymocyte, count)]
+#alabels = ["thymocyte count"]
 
 react_ratio(model) = model.autoreactive_thymocytes/model.nonautoreactive_thymocytes # proportion of autoreactive_thymocytes to nonautoreactive_thymocytes - should decrease over time
 escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes # proportion of escaped thymocutes to total thymocytes that appeared in simulation - should approach a constant
@@ -463,7 +466,7 @@ mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escap
 mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "reactivity_ratio"]
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
-agent_speed = 0.005 * dims[1]
+agent_speed = 0.0015 * dims[1]
 model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
@@ -478,25 +481,34 @@ figure, adf, mdf = abm_data_exploration(
     model2,
     cell_move!,
     model_step!;
-    frames = 500,
+    frames = 1000,
     ac = cell_colors,
     as = cell_sizes,
     spf = 1,
-    framerate = 20,
+    framerate = 100,
 ) =#
 
 #@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
-#= data, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata)
-
-x = data.step
-thy_data = data.count_thymocyte
-tec_data = data.count_tec
+#= adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
+x = mdf.step
+thy_data = mdf.react_ratio
 figure = Figure(resolution = (600, 400))
-ax = figure[1, 1] = Axis(figure, xlabel = "steps", ylabel = "Count")
+ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Proportion")
+ax.title = "Proportion of Autoreactive to Nonautoreactive Thymocytes"
 lthy = lines!(ax, x, thy_data, color = :blue)
-ltec = lines!(ax, x, tec_data, color = :red)
-figure[1, 2] = Legend(figure, [lthy, ltec], ["Thymocytes", "Tecs"], textsize = 12)
+#figure[1, 2] = Legend(figure, [lthy], ["Proportion"], textsize = 12)
+display(figure) =#
+
+#= x = mdf.step
+success = mdf.successful_interactions
+unsuccess = mdf.unsuccessful_interactions
+figure = Figure(resolution = (600, 400))
+ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Number of Interactions")
+ax.title = "Quantity of Thymocyte/APC Interactions"
+lsuccess= lines!(ax, x, success, color = :blue)
+lunsuccess = lines!(ax, x, unsuccess, color = :red)
+figure[1, 2] = Legend(figure, [lsuccess, lunsuccess], ["Successful", "Unsuccessful"], textsize = 12)
 display(figure) =#
 
 # Runs model ensemble (in this case w/ different RNG seeds for each) and plots average thymocyte count over across all models over time
