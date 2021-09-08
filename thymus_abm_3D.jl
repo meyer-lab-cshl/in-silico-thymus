@@ -95,7 +95,7 @@ function initialize(;
     rng = MersenneTwister(rng_seed)
 
     possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/validpeptides.txt",'\n')[1:45]
-    shuffle!(possible_antigens)
+    shuffle!(rng, possible_antigens)
 
     #possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
 
