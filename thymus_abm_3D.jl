@@ -9,6 +9,7 @@ using StatsBase # used to sample without replacement
 using BenchmarkTools
 using DelimitedFiles
 using NamedArrays
+using NPZ
 
 mutable struct Tec <: AbstractAgent
     id::Int                             # Unique ID to identify agent
@@ -94,7 +95,7 @@ function initialize(;
 
     rng = MersenneTwister(rng_seed)
 
-    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/validpeptides.txt",'\n')[1:45]
+    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/validpeptides.txt",'\n')[1:1000]
     shuffle!(rng, possible_antigens)
 
     #possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
@@ -110,8 +111,11 @@ function initialize(;
     total_thymocytes = 0
     num_tregs = 0
     # Data from Derivation of an amino acid similarity matrix for peptide:MHC binding and its application as a Bayesian prior
-    aa_data, header = readdlm("/home/mulle/Downloads/12859_2009_3124_MOESM2_ESM.MAT", header=true)
-    aa_matrix = NamedArray(aa_data, (vec(header), vec(header)), ("Rows", "Cols"))
+    #aa_data, header = readdlm("/home/mulle/Downloads/12859_2009_3124_MOESM2_ESM.MAT", header=true)
+    #aa_matrix = NamedArray(aa_data, (vec(header), vec(header)), ("Rows", "Cols"))
+    aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/proportional_binding_matrices.npy")
+    aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+    aa_matrix = NamedArray(aa_data,(collect(1:9), aas, aas), ("Pos","Rows","Cols"))
 
     properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, possible_antigens, autoreactive_proportion, successful_interactions, unsuccessful_interactions, escaped_thymocytes,
      autoreactive_thymocytes, nonautoreactive_thymocytes, total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix)
@@ -133,7 +137,7 @@ function initialize(;
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, possible_antigens, age+2, replace = false) # choose an (age+2) size sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, possible_antigens, age+200, replace = false) # choose an (age+2) size sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
         add_agent!(tec, model)
         set_color!(tec)
@@ -263,15 +267,15 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
         # choose random antigen from tec's antigens to compare thymocyte tcr to. use aa_matrix to retrieve stength of interaction, comparing characters one by one
         # if a reaction level passes the model threshold, the thymocyte is killed
         antigen = rand(model.rng, tec_agent.antigens)
-
-        reaction = 0.0
-        for i in range(1, length(antigen), step=1)
-            antigen_aa = string(antigen[i])
-            tcr_aa = string(thymocyte_agent.tcr[i])
-            reaction += model.aa_matrix[antigen_aa, tcr_aa]
-        end
         
-        #reaction = total_matches / length(antigen) # strength of reaction
+        # reaction strength is geometric mean
+        reaction = 1.0
+        for i in range(1, length(antigen), step=1)
+            antigen_aa = antigen[i]
+            tcr_aa = thymocyte_agent.tcr[i]
+            reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
+        end
+        reaction = reaction^(1/length(antigen))
 
         if get(thymocyte_agent.reaction_levels, antigen, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
             thymocyte_agent.reaction_levels[antigen] += reaction
@@ -338,38 +342,6 @@ function collide!(a::Union{Tec, Dendritic, Thymocyte}, b::Union{Tec, Dendritic, 
     b.vel = b.vel .+ (λ/b.mass).*n # update velocity b
 end
 
-#= using LinearAlgebra
-function collide!(a, b)
-    # Modify Agents.jl elastic_collision! to attempt to make it work in 3D
-    v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
-    r1 = x1 .- x2
-    r2 = x2 .- x1
-    m1, m2 = a.mass, b.mass
-    m1 == m2 == Inf && return false
-    if m1 == Inf
-        @assert v1 == (0, 0, 0) "An agent with ∞ mass cannot have nonzero velocity"
-        dot(r1, v2) ≤ 0 && return false
-        v1 = ntuple(x -> zero(eltype(v1)), length(v1))
-        f1, f2 = 0.0, 2.0
-    elseif m2 == Inf
-        @assert v2 == (0, 0, 0) "An agent with ∞ mass cannot have nonzero velocity"
-        dot(r2, v1) ≤ 0 && return false
-        v2 = ntuple(x -> zero(eltype(v1)), length(v1))
-        f1, f2 = 2.0, 0.0
-    else
-        # Check if disks face each other, to avoid double collisions
-        !(dot(r2, v1) > 0 && dot(r2, v1) > 0) && return false
-        f1 = (2m2 / (m1 + m2))
-        f2 = (2m1 / (m1 + m2))
-    end
-    dx = a.pos .- b.pos
-    n = norm(dx)^2
-    n == 0 && return false # do nothing if they are at the same position
-    a.vel = v1 .- f1 .* (dot(v1 .- v2, r1) / n) .* (r1)
-    b.vel = v2 .- f2 .* (dot(v2 .- v1, r2) / n) .* (r2)
-    return true
-end =#
-
 function model_step!(model) # happens after every agent has acted
     interaction_radius = 0.09*model.width_height[1]
     for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
@@ -409,7 +381,7 @@ function model_step!(model) # happens after every agent has acted
             end
         end
         vel = (0.0, 0.0, 0.0)
-        antis = sample(model.rng, model.possible_antigens, 2, replace = false) # choose a sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, model.possible_antigens, 200, replace = false) # choose a sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 0.5, 0, antis, 0, false)
         add_agent!(tec, model)
     end
@@ -434,7 +406,7 @@ function model_step!(model) # happens after every agent has acted
         end
 
         if agent.type == :tec && agent.age != 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
-            push!(agent.antigens, rand(model.rng, model.possible_antigens))
+            push!(agent.antigens, sample(model.rng, model.possible_antigens, 5, replace = false))#rand(model.rng, model.possible_antigens))
             agent.just_aged = false
         end
     end
@@ -477,7 +449,7 @@ figure, adf, mdf = abm_data_exploration(
     mdata = mdata, mlabels = mlabels)
 
 #= abm_video(
-    "thymus_abm_3Dvid.mp4",
+    "thymus_abm_3Dvid_new.mp4",
     model2,
     cell_move!,
     model_step!;
