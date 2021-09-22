@@ -406,7 +406,7 @@ function model_step!(model) # happens after every agent has acted
         end
 
         if agent.type == :tec && agent.age != 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
-            push!(agent.antigens, sample(model.rng, model.possible_antigens, 5, replace = false))#rand(model.rng, model.possible_antigens))
+            push!(agent.antigens, sample(model.rng, model.possible_antigens, 5, replace = false)...)#rand(model.rng, model.possible_antigens))
             agent.just_aged = false
         end
     end
@@ -439,16 +439,16 @@ mlabels = ["number of tregs", "successful interactions ", "unsuccessful interact
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.0015 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
+model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 5000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
-figure, adf, mdf = abm_data_exploration(
+#= figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels)
+    mdata = mdata, mlabels = mlabels) =#
 
-#= abm_video(
+abm_video(
     "thymus_abm_3Dvid_new.mp4",
     model2,
     cell_move!,
@@ -458,7 +458,7 @@ figure, adf, mdf = abm_data_exploration(
     as = cell_sizes,
     spf = 1,
     framerate = 100,
-) =#
+)
 
 #@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
