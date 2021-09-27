@@ -113,7 +113,7 @@ function initialize(;
     # Data from Derivation of an amino acid similarity matrix for peptide:MHC binding and its application as a Bayesian prior
     #aa_data, header = readdlm("/home/mulle/Downloads/12859_2009_3124_MOESM2_ESM.MAT", header=true)
     #aa_matrix = NamedArray(aa_data, (vec(header), vec(header)), ("Rows", "Cols"))
-    aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/proportional_binding_matrices.npy")
+    aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/binding_matrices/proportional_binding_matrices.npy")
     aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
     aa_matrix = NamedArray(aa_data,(collect(1:9), aas, aas), ("Pos","Rows","Cols"))
 
@@ -439,16 +439,16 @@ mlabels = ["number of tregs", "successful interactions ", "unsuccessful interact
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.0015 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 5000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
+model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 7000, speed = agent_speed, threshold = 0.75, autoreactive_proportion = 0.5, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
-#= figure, adf, mdf = abm_data_exploration(
+figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels) =#
+    mdata = mdata, mlabels = mlabels)
 
-abm_video(
+#= abm_video(
     "thymus_abm_3Dvid_new.mp4",
     model2,
     cell_move!,
@@ -458,7 +458,7 @@ abm_video(
     as = cell_sizes,
     spf = 1,
     framerate = 100,
-)
+) =#
 
 #@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
 
