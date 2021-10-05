@@ -113,7 +113,7 @@ function initialize(;
     # Data from Derivation of an amino acid similarity matrix for peptide:MHC binding and its application as a Bayesian prior
     #aa_data, header = readdlm("/home/mulle/Downloads/12859_2009_3124_MOESM2_ESM.MAT", header=true)
     #aa_matrix = NamedArray(aa_data, (vec(header), vec(header)), ("Rows", "Cols"))
-    aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/binding_matrices/proportional_binding_matrices.npy")
+    aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/binding_matrices/H2_proportional_binding_matrices.npy")
     aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
     aa_matrix = NamedArray(aa_data,(collect(1:9), aas, aas), ("Pos","Rows","Cols"))
 
