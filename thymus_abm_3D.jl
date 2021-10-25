@@ -251,51 +251,48 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
     end
 
     thymocyte_agent.num_interactions += 1
+    tec_agent.num_interactions += 1 
 
-    if thymocyte_agent.tcr == "" # check if non-autoreactive thymocyte - is this necessary?
-        #model.unsuccessful_interactions += 1 # not necessarily an interaction if thymocyte is non-autoreactive
-        return
-    else # compare a chosen tec antigen sequence to thymocyte TCR sequence
-        # choose random antigen from tec's antigens to compare thymocyte tcr to. use aa_matrix to retrieve stength of interaction, comparing characters one by one
-        # if a reaction level passes the model threshold, the thymocyte is killed
-        antigen = rand(model.rng, tec_agent.antigens)
-        
-        # reaction strength is geometric mean
-        reaction = 1.0
-        for i in range(1, length(antigen), step=1)
-            antigen_aa = antigen[i]
-            tcr_aa = thymocyte_agent.tcr[i]
-            reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
-        end
-        reaction = reaction^(1/length(antigen))
-
-        if get(thymocyte_agent.reaction_levels, antigen, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
-            thymocyte_agent.reaction_levels[antigen] += reaction
-        else # otherwise, add antigen as a new entry to the reaction_levels dict
-            thymocyte_agent.reaction_levels[antigen] = reaction
-        end
-
-        if thymocyte_agent.reaction_levels[antigen] >= model.threshold # kill thymocyte if sequence matches are above model threshold - (> or >=?)
-            #kill_agent!(thymocyte_agent, model)
-            if rand(model.rng) > 0.5
-                thymocyte_agent.death_label = true
-                model.autoreactive_thymocytes += 1
-            else
-                if thymocyte_agent.confined == false
-                    thymocyte_agent.confined = true
-                    thymocyte_agent.bind_location = thymocyte_agent.pos
-                    thymocyte_agent.vel = 0.5 .* thymocyte_agent.vel
-                end
-            end
-            model.successful_interactions += 1
-            tec_agent.num_interactions += 1 # only increment if successful interaction w/ a reactive thymocyte?
-        else
-            if thymocyte_agent.reaction_levels[antigen] >= model.treg_threshold && thymocyte_agent.reaction_levels[antigen] < model.threshold
-                thymocyte_agent.treg = true
-            end
-            model.unsuccessful_interactions += 1
-        end
+    # compare a chosen tec antigen sequence to thymocyte TCR sequence
+    # choose random antigen from tec's antigens to compare thymocyte tcr to. use aa_matrix to retrieve stength of interaction, comparing characters one by one
+    # if a reaction level passes the model threshold, the thymocyte is killed
+    antigen = rand(model.rng, tec_agent.antigens)
+    
+    # reaction strength is geometric mean
+    reaction = 1.0
+    for i in range(1, length(antigen), step=1)
+        antigen_aa = antigen[i]
+        tcr_aa = thymocyte_agent.tcr[i]
+        reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
     end
+    reaction = reaction^(1/length(antigen))
+
+    if get(thymocyte_agent.reaction_levels, antigen, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
+        thymocyte_agent.reaction_levels[antigen] += reaction
+    else # otherwise, add antigen as a new entry to the reaction_levels dict
+        thymocyte_agent.reaction_levels[antigen] = reaction
+    end
+
+    if thymocyte_agent.reaction_levels[antigen] >= model.threshold # kill thymocyte if sequence matches are above model threshold - (> or >=?)
+        #kill_agent!(thymocyte_agent, model)
+        if rand(model.rng) > 0.3
+            thymocyte_agent.death_label = true
+            model.autoreactive_thymocytes += 1
+        else
+            if thymocyte_agent.confined == false
+                thymocyte_agent.confined = true
+                thymocyte_agent.bind_location = thymocyte_agent.pos
+                thymocyte_agent.vel = 0.5 .* thymocyte_agent.vel
+            end
+        end
+        model.successful_interactions += 1
+    else
+        if thymocyte_agent.reaction_levels[antigen] >= model.treg_threshold && thymocyte_agent.reaction_levels[antigen] < model.threshold
+            thymocyte_agent.treg = true
+        end
+        model.unsuccessful_interactions += 1
+    end
+
     thresh1 = a1.type == :thymocyte ? 10 : 20
     thresh2 = a2.type == :thymocyte ? 10 : 20
     if a1.num_interactions != 0 && a1.num_interactions % thresh1 == 0 # increment age after every thresh of agent's interactions
@@ -372,6 +369,7 @@ function model_step!(model) # happens after every agent has acted
     end
 
     for agent in allagents(model) # kill agent if it reaches certain age and update model properties depending on agent type/properties
+        escaped = false
         if (agent.age >= 20 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
             if agent.type == :thymocyte
                 for antigen in model.peptides # check if exiting thymocyte was autoreactive by comparing its TCR to every peptide possible to be presented
@@ -386,6 +384,7 @@ function model_step!(model) # happens after every agent has acted
                     if reaction >= model.threshold
                         model.autoreactive_thymocytes += 1
                         model.escaped_thymocytes += 1
+                        escaped = true
                         break
                     end
                 end
@@ -395,6 +394,9 @@ function model_step!(model) # happens after every agent has acted
                 end
             else
                 model.tecs_present -= 1
+            end
+            if escaped == false
+                model.nonautoreactive_thymocytes += 1
             end
             kill_agent!(agent, model)
         end
@@ -420,20 +422,21 @@ end
 tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
 
-adata = [(tec, count), (thymocyte, count)]
-alabels = ["tec count", "thymocyte count"]
+adata = [(thymocyte, count)]
+alabels = ["thymocyte count"]
 #adata = [(thymocyte, count)]
 #alabels = ["thymocyte count"]
 
 react_ratio(model) = model.autoreactive_thymocytes# proportion of autoreactive_thymocytes to nonautoreactive_thymocytes - should decrease over time
 escape_ratio(model) = model.escaped_thymocytes # proportion of escaped thymocutes to total thymocytes that appeared in simulation - should approach a constant
+nonreact_ratio(model) = model.nonautoreactive_thymocytes
 
-mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio]
-mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "autoreactive thymocytes"]
+mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio, nonreact_ratio]
+mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "autoreactive thymocytes", "nonautoreactive"]
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.0015 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 3000, speed = agent_speed, threshold = 0.75, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
+model2 = initialize(; width_height = dims, n_tecs = 100, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, dt = 1.0, rng_seed = 42, treg_threshold = 0.6)
 
 parange = Dict(:threshold => 0:0.01:1)
 
