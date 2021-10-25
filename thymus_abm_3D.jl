@@ -69,7 +69,7 @@ Base.@kwdef mutable struct Parameters
     n_thymocytes::Int = n_thymocytes
     n_dendritics::Int = n_dendritics
     threshold::Float64 = threshold
-    possible_antigens::Array = possible_antigens
+    peptides::Array = peptides
     successful_interactions::Int = successful_interactions
     unsuccessful_interactions::Int = unsuccessful_interactions
     escaped_thymocytes::Int = 0
@@ -95,8 +95,8 @@ function initialize(;
 
     rng = MersenneTwister(rng_seed)
 
-    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/binding_matrices/validpeptides.txt",'\n')[1:1000]
-    shuffle!(rng, possible_antigens)
+    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/binding_matrices/validpeptides.txt",'\n')
+    peptides = sample(rng, possible_antigens, 1000, replace=false)
 
     #possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
 
@@ -117,7 +117,7 @@ function initialize(;
     aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
     aa_matrix = NamedArray(aa_data,(collect(1:9), aas, aas), ("Pos","Rows","Cols"))
 
-    properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, possible_antigens, successful_interactions, unsuccessful_interactions, escaped_thymocytes, autoreactive_thymocytes, nonautoreactive_thymocytes,
+    properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, peptides, successful_interactions, unsuccessful_interactions, escaped_thymocytes, autoreactive_thymocytes, nonautoreactive_thymocytes,
      total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
@@ -137,7 +137,7 @@ function initialize(;
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, possible_antigens, age+200, replace = false) # choose an (age+2) size sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, peptides, age+200, replace = false) # choose an (age+2) size sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
         add_agent!(tec, model)
         set_color!(tec)
@@ -156,7 +156,7 @@ function initialize(;
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, possible_antigens, 1, replace = false) # choose 1 antigen for DC
+        antis = sample(model.rng, peptides, 1, replace = false) # choose 1 antigen for DC
         dc = Dendritic(id, pos, vel, mass, :dendritic, color, size, num_interactions, antis, age, just_aged)
         add_agent!(dc, model)
         #set_color!(dc)
@@ -366,7 +366,7 @@ function model_step!(model) # happens after every agent has acted
             end
         end
         vel = (0.0, 0.0, 0.0)
-        antis = sample(model.rng, model.possible_antigens, 200, replace = false) # choose a sample from possible_antigens to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, model.peptides, 200, replace = false) # choose a sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 0.5, 0, antis, 0, false)
         add_agent!(tec, model)
     end
@@ -374,7 +374,7 @@ function model_step!(model) # happens after every agent has acted
     for agent in allagents(model) # kill agent if it reaches certain age and update model properties depending on agent type/properties
         if (agent.age >= 20 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
             if agent.type == :thymocyte
-                for antigen in model.possible_antigens # check if exiting thymocyte was autoreactive by comparing its TCR to every peptide possible to be presented
+                for antigen in model.peptides # check if exiting thymocyte was autoreactive by comparing its TCR to every peptide possible to be presented
                     reaction = 1.0
                     for i in range(1, length(antigen), step=1)
                         antigen_aa = antigen[i]
@@ -400,7 +400,7 @@ function model_step!(model) # happens after every agent has acted
         end
 
         if agent.type == :tec && agent.age != 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
-            push!(agent.antigens, sample(model.rng, model.possible_antigens, 5, replace = false)...)#rand(model.rng, model.possible_antigens))
+            push!(agent.antigens, sample(model.rng, model.peptides, 5, replace = false)...)#rand(model.rng, model.peptides))
             agent.just_aged = false
         end
     end
