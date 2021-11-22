@@ -82,6 +82,10 @@ Base.@kwdef mutable struct Parameters
     aa_matrix::NamedArray = aa_matrix
     synapse_interactions::Int = synapse_interactions
     min_strong_interactions::Int = min_strong_interactions
+    total_peptides::Int = total_peptides
+    deaths::Int = deaths
+    total_dead_thymocytes::Int = total_dead_thymocytes
+    alive_thymocytes::Int = alive_thymocytes
 end
 
 function initialize(;
@@ -93,14 +97,15 @@ function initialize(;
     dt=1.0,
     threshold = 0.8,
     treg_threshold = 0.6,
-    rng_seed = 42,
+    rng_seed = 1,
     synapse_interactions = 1,
-    min_strong_interactions = 1)
+    min_strong_interactions = 1,
+    total_peptides = 10000)
 
     rng = MersenneTwister(rng_seed)
 
-    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/binding_matrices/validpeptides.txt",'\n')
-    peptides = sample(rng, possible_antigens, 1000, replace=false)
+    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/validpeptides.txt",'\n')
+    peptides = sample(rng, possible_antigens, total_peptides, replace=false)
 
     #possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
 
@@ -111,6 +116,9 @@ function initialize(;
     autoreactive_thymocytes = 0
     nonautoreactive_thymocytes = 0
     escaped_thymocytes = 0
+    deaths = 0
+    total_dead_thymocytes = 0
+    alive_thymocytes = 10000
 
     total_thymocytes = 0
     num_tregs = 0
@@ -122,7 +130,7 @@ function initialize(;
     aa_matrix = NamedArray(aa_data,(collect(1:9), aas, aas), ("Pos","Rows","Cols"))
 
     properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, peptides, successful_interactions, unsuccessful_interactions, escaped_thymocytes, autoreactive_thymocytes, nonautoreactive_thymocytes,
-     total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix, synapse_interactions, min_strong_interactions)
+     total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix, synapse_interactions, min_strong_interactions, total_peptides, deaths, total_dead_thymocytes, alive_thymocytes)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
 
@@ -141,7 +149,7 @@ function initialize(;
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, peptides, age+200, replace = false) # choose an (age+2) size sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, peptides, age+100, replace = false) # choose an (age+2000) size sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
         add_agent!(tec, model)
         set_color!(tec)
@@ -153,14 +161,14 @@ function initialize(;
         if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs/dendritics don't overlap
             pos = Tuple(rand(model.rng, 3))
         end
-        vel = (0.0, 0.0, 0.0)
-        mass = Inf
+        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
+        mass = 1.0
         color = "#ffa500"
         size = 0.5
         num_interactions = 0
         age = rand(model.rng, 0:19) # randomize starting ages
         just_aged = false
-        antis = sample(model.rng, peptides, 1, replace = false) # choose 1 antigen for DC
+        antis = sample(model.rng, peptides, 1, replace = false) # choose 1 antigen for DC to start with
         dc = Dendritic(id, pos, vel, mass, :dendritic, color, size, num_interactions, antis, age, just_aged)
         add_agent!(dc, model)
         #set_color!(dc)
@@ -197,6 +205,9 @@ function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
     if agent.type == :thymocyte
         if agent.death_label == true # maybe weird to take care of agent death here, but doing it in interact! in model_step! sometimes causes key value errors - does this introduce any problems?
             kill_agent!(agent, model)
+            model.autoreactive_thymocytes += 1
+            model.deaths += 1
+            model.total_dead_thymocytes += 1
             return
             # Fix movement under confinement below? - some agents move back and forth over short distance - confine around location that thymocyte binded or location of binding tec or is that the same thing?
         elseif agent.confined == true
@@ -212,6 +223,8 @@ function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
         end
         # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much? fixes confinement movement though, but increases their velocity
         #walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
+    elseif agent.type == :dendritic
+        move_agent!(agent, model, model.dt)
     end
     set_color!(agent)
 end
@@ -243,7 +256,23 @@ function set_color!(agent::Union{Tec, Dendritic, Thymocyte})
 end
 
 ## Model steps
-function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
+function tec_DC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
+    if a1.type == :tec && a2.type == :dendritic # if tec/thymocyte collide, they can interact. relabel them here for simplicity
+        tec_agent = a1
+        dendritic_agent = a2
+    elseif a1.type == :dendritic && a2.type == :tec
+        tec_agent = a2
+        dendritic_agent = a1
+    else
+        return
+    end
+
+    peptides = rand(model.rng, tec_agent.antigens, model.synapse_interactions)
+
+    push!(dendritic_agent.antigens, peptides...)#rand(model.rng, model.peptides))
+end
+
+function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
     if (a1.type == :tec || a1.type == :dendritic) && a2.type == :thymocyte # if tec/thymocyte collide, they can interact. relabel them here for simplicity
         tec_agent = a1
         thymocyte_agent = a2
@@ -292,7 +321,6 @@ function interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendriti
             #kill_agent!(thymocyte_agent, model)
             if rand(model.rng) > 0.3
                 thymocyte_agent.death_label = true
-                model.autoreactive_thymocytes += 1
             else
                 if thymocyte_agent.confined == false
                     thymocyte_agent.confined = true
@@ -344,38 +372,29 @@ function collide!(a::Union{Tec, Dendritic, Thymocyte}, b::Union{Tec, Dendritic, 
 end
 
 function model_step!(model) # happens after every agent has acted
-    interaction_radius = 0.09*model.width_height[1]
+    interaction_radius = 0.06*model.width_height[1]
     for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
-        interact!(a1, a2, model)
+        tec_DC_interact!(a1, a2, model)
+        thymocyte_APC_interact!(a1, a2, model)
         #elastic_collision!(a1, a2, :mass)
         collide!(a1, a2)
     end
 
-    if rand(model.rng) <= 0.15 # random chance to generate new thymocyte
-        pos = Tuple(rand(model.rng, 3))
-        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
-        tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
-
-        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#006400", 0.2, 0, tcr, 0, false, Dict(),  false, false, (0.0,0.0,0.0), false)
-        add_agent!(thymocyte, model)
-        model.total_thymocytes += 1
-    end
-
     if model.tecs_present < model.n_tecs # generate new tec if one dies
         model.tecs_present += 1
-        overlap = true
-        while overlap == true # should be good to make sure new tecs don't overlap an existing tec - could be infinite loop or very long as less positions are available - though should never infinite loop if always replacing a dead one
+        #overlap = true
+        #= while overlap == true =# # should be good to make sure new tecs don't overlap an existing tec - could be infinite loop or very long as less positions are available - though should never infinite loop if always replacing a dead one
             pos = Tuple(rand(model.rng, 3))
-            for a in nearby_ids(pos, model, model.width_height[1]/2)
+#=             for a in nearby_ids(pos, model, model.width_height[1]/2)
                 if getindex(model, a).type == :tec || getindex(model, a).type == :dendritic
                     break
                 end
                 overlap = false
             end
-        end
+        end =#
         vel = (0.0, 0.0, 0.0)
-        antis = sample(model.rng, model.peptides, 200, replace = false) # choose a sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, model.peptides, 1000, replace = false) # choose a sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
         tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 0.5, 0, antis, 0, false)
         add_agent!(tec, model)
     end
@@ -383,7 +402,12 @@ function model_step!(model) # happens after every agent has acted
     for agent in allagents(model) # kill agent if it reaches certain age and update model properties depending on agent type/properties
         escaped = false
         if (agent.age >= 20 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
+            if agent.type == :tec
+                model.tecs_present -= 1 
+            end
             if agent.type == :thymocyte
+                model.deaths += 1
+                model.total_dead_thymocytes += 1
                 strong_reactions = 0
                 for antigen in model.peptides # check if exiting thymocyte was autoreactive by comparing its TCR to every peptide possible to be presented
                     reaction = 1.0
@@ -409,11 +433,10 @@ function model_step!(model) # happens after every agent has acted
                 if agent.treg == true
                     model.num_tregs += 1
                 end
-            else
-                model.tecs_present -= 1
-            end
-            if escaped == false
-                model.nonautoreactive_thymocytes += 1
+
+                if escaped == false
+                    model.nonautoreactive_thymocytes += 1
+                end
             end
             kill_agent!(agent, model)
         end
@@ -423,6 +446,19 @@ function model_step!(model) # happens after every agent has acted
             agent.just_aged = false
         end
     end
+
+    model.alive_thymocytes = count(i->(i.type == :thymocyte), allagents(model))
+
+    for _ in 1:model.deaths # random chance to generate new thymocyte
+        pos = Tuple(rand(model.rng, 3))
+        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
+        tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
+
+        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#006400", 0.2, 0, tcr, 0, false, Dict(), false, false, (0.0,0.0,0.0), false)
+        add_agent!(thymocyte, model)
+        model.total_thymocytes += 1
+    end
+    model.deaths = 0
 end
 
 cell_colors(a) = a.color
@@ -444,38 +480,42 @@ alabels = ["thymocyte count"]
 #adata = [(thymocyte, count)]
 #alabels = ["thymocyte count"]
 
-react_ratio(model) = model.autoreactive_thymocytes# proportion of autoreactive_thymocytes to nonautoreactive_thymocytes - should decrease over time
-escape_ratio(model) = model.escaped_thymocytes # proportion of escaped thymocutes to total thymocytes that appeared in simulation - should approach a constant
-nonreact_ratio(model) = model.nonautoreactive_thymocytes
+react_ratio(model) = model.autoreactive_thymocytes/model.total_dead_thymocytes # proportion of total killed/exited thymocytes that were autoreactive
+escape_ratio(model) = model.escaped_thymocytes/model.total_dead_thymocytes  # proportion of total killed/exited thymocytes that escaped
+escapedautoreactive_ratio(model) = model.escaped_thymocytes/model.autoreactive_thymocytes # proportion of total autoreactive thymocytes that escaped
+nonreact_ratio(model) = model.nonautoreactive_thymocytes/model.total_dead_thymocytes  # proportion of total killed/exited thymocytes that were nonautoreactive
+total_thy(model) = model.total_thymocytes
+alive_ratio(model) = model.alive_thymocytes/model.total_thymocytes
 
-mdata = [:num_tregs, :successful_interactions, :unsuccessful_interactions, escape_ratio, react_ratio, nonreact_ratio]
-mlabels = ["number of tregs", "successful interactions ", "unsuccessful interactions", "escaped thymocytes", "autoreactive thymocytes", "nonautoreactive"]
+mdata = [:num_tregs, :autoreactive_thymocytes, :escaped_thymocytes, :nonautoreactive_thymocytes, :alive_thymocytes, escape_ratio, react_ratio, nonreact_ratio, :threshold, total_thy, alive_ratio, escapedautoreactive_ratio]
+mlabels = ["number of tregs", "autoreactive", "escaped", "nonautoreactive", "alive", "escaped thymocytes ratio", "autoreactive thymocytes ratio", "nonautoreactive ratio", "selection threshold", "total thymocytes", "alive thymocytes ratio", "escaped to autoreactive ratio"]
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.0015 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 100, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 1.0, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 10, min_strong_interactions = 3)
+model2 = initialize(; width_height = dims, n_tecs = 100, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 1.0, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 1, min_strong_interactions = 1,
+    total_peptides = 1000)
 
 parange = Dict(:threshold => 0:0.01:1)
 
-figure, adf, mdf = abm_data_exploration(
+#= figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels) 
+    mdata = mdata, mlabels = mlabels)  =#
 
-#= abm_video(
-    "thymus_abm_3Dvid_new.mp4",
+abm_video(
+    "thymus_abm_3Dvid_newtest.mp4",
     model2,
     cell_move!,
     model_step!;
-    frames = 1000,
+    frames = 2000,
     ac = cell_colors,
     as = cell_sizes,
     spf = 1,
     framerate = 100,
-) =#
+)
 
 #@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
-
+#adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
 #= adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
 x = mdf.step
 thy_data = mdf.react_ratio
