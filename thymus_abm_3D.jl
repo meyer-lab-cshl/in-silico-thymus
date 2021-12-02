@@ -120,7 +120,7 @@ function initialize(;
     total_dead_thymocytes = 0
     alive_thymocytes = 10000
 
-    total_thymocytes = 0
+    total_thymocytes = 10000
     num_tregs = 0
     # Data from Derivation of an amino acid similarity matrix for peptide:MHC binding and its application as a Bayesian prior
     #aa_data, header = readdlm("/home/mulle/Downloads/12859_2009_3124_MOESM2_ESM.MAT", header=true)
@@ -180,7 +180,7 @@ function initialize(;
         pos = Tuple(rand(model.rng, 3))
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
-        color = "#006400"
+        color = "#edf8e9"
         size = 0.2
         num_interactions = 0
         age = rand(model.rng, 0:3) # randomize starting ages
@@ -195,7 +195,7 @@ function initialize(;
         treg = false
         thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, age, just_aged, reaction_levels, death_label, confined, bind_location, treg)
         add_agent!(thymocyte, model)
-        set_color!(thymocyte)
+        #set_color!(thymocyte)
     end
     return model
 end
@@ -241,14 +241,20 @@ function set_color!(agent::Union{Tec, Dendritic, Thymocyte})
             elseif agent.age <= 16
                 agent.color = "#0044ff"
             elseif agent.age <= 20
-                agent.color = "#000000"
+                agent.color = "#0088ff"
             end
         end
     elseif agent.type == :thymocyte
         if agent.confined == true
             agent.color = "#ffff00"
+        elseif any(x -> x <= 0.25, values(agent.reaction_levels))
+            agent.color = "#bae4b3"
+        elseif any(x -> x <= 0.50, values(agent.reaction_levels))
+            agent.color = "#74c476"
+        elseif any(x -> x <= Inf, values(agent.reaction_levels))
+            agent.color = "#238b45"
         else
-            agent.color = "#ff0000"
+            agent.color = "#edf8e9"
         end
     else
         return
@@ -307,6 +313,7 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
         else # otherwise, add antigen as a new entry to the reaction_levels dict
             thymocyte_agent.reaction_levels[antigen] = reaction
         end
+        #thymocyte_agent.reaction_levels[antigen] = min(thymocyte_agent.reaction_levels[antigen], 1.0) # clip reaction strength to max of 1.0
         
         if thymocyte_agent.reaction_levels[antigen] >= model.threshold
             strong_reactions += 1
@@ -399,7 +406,7 @@ function model_step!(model) # happens after every agent has acted
         add_agent!(tec, model)
     end
 
-    for agent in allagents(model) # kill agent if it reaches certain age and update model properties depending on agent type/properties
+    for agent in allagents(model)
         escaped = false
         if (agent.age >= 20 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
             if agent.type == :tec
@@ -447,18 +454,18 @@ function model_step!(model) # happens after every agent has acted
         end
     end
 
-    model.alive_thymocytes = count(i->(i.type == :thymocyte), allagents(model))
-
     for _ in 1:model.deaths # random chance to generate new thymocyte
         pos = Tuple(rand(model.rng, 3))
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
 
-        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#006400", 0.2, 0, tcr, 0, false, Dict(), false, false, (0.0,0.0,0.0), false)
+        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#edf8e9", 0.2, 0, tcr, 0, false, Dict(), false, false, (0.0,0.0,0.0), false)
         add_agent!(thymocyte, model)
         model.total_thymocytes += 1
     end
     model.deaths = 0
+
+    model.alive_thymocytes = count(i->(i.type == :thymocyte), allagents(model))
 end
 
 cell_colors(a) = a.color
@@ -476,19 +483,21 @@ tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
 
 adata = [(thymocyte, count)]
-alabels = ["thymocyte count"]
+alabels = ["Alive Thymocytes"]
 #adata = [(thymocyte, count)]
 #alabels = ["thymocyte count"]
 
-react_ratio(model) = model.autoreactive_thymocytes/model.total_dead_thymocytes # proportion of total killed/exited thymocytes that were autoreactive
-escape_ratio(model) = model.escaped_thymocytes/model.total_dead_thymocytes  # proportion of total killed/exited thymocytes that escaped
+react_ratio(model) = model.autoreactive_thymocytes/model.total_thymocytes # proportion of total killed/exited thymocytes that were autoreactive
+escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes  # proportion of total killed/exited thymocytes that escaped
 escapedautoreactive_ratio(model) = model.escaped_thymocytes/model.autoreactive_thymocytes # proportion of total autoreactive thymocytes that escaped
-nonreact_ratio(model) = model.nonautoreactive_thymocytes/model.total_dead_thymocytes  # proportion of total killed/exited thymocytes that were nonautoreactive
+nonreact_ratio(model) = model.nonautoreactive_thymocytes/model.total_thymocytes  # proportion of total killed/exited thymocytes that were nonautoreactive
 total_thy(model) = model.total_thymocytes
 alive_ratio(model) = model.alive_thymocytes/model.total_thymocytes
 
-mdata = [:num_tregs, :autoreactive_thymocytes, :escaped_thymocytes, :nonautoreactive_thymocytes, :alive_thymocytes, escape_ratio, react_ratio, nonreact_ratio, :threshold, total_thy, alive_ratio, escapedautoreactive_ratio]
-mlabels = ["number of tregs", "autoreactive", "escaped", "nonautoreactive", "alive", "escaped thymocytes ratio", "autoreactive thymocytes ratio", "nonautoreactive ratio", "selection threshold", "total thymocytes", "alive thymocytes ratio", "escaped to autoreactive ratio"]
+#mdata = [:num_tregs, :autoreactive_thymocytes, :escaped_thymocytes, :nonautoreactive_thymocytes, :alive_thymocytes, escape_ratio, react_ratio, nonreact_ratio, :threshold, total_thy, alive_ratio, escapedautoreactive_ratio]
+#mlabels = ["number of tregs", "autoreactive", "escaped", "nonautoreactive", "alive", "escaped thymocytes ratio", "autoreactive thymocytes ratio", "nonautoreactive ratio", "selection threshold", "total thymocytes", "alive thymocytes ratio", "escaped to autoreactive ratio"]
+mdata = [:autoreactive_thymocytes, :nonautoreactive_thymocytes, :escaped_thymocytes]
+mlabels = ["Autoreactive Thymocytes", "Non-autoreactive Thymocytes", "Escaped Autoreactive Thymocytes"]
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.0015 * dims[1]
@@ -497,12 +506,12 @@ model2 = initialize(; width_height = dims, n_tecs = 100, n_dendritics = 10, n_th
 
 parange = Dict(:threshold => 0:0.01:1)
 
-#= figure, adf, mdf = abm_data_exploration(
+figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
-    as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels)  =#
+    as = cell_sizes, ac = cell_colors,
+    mdata = mdata, mlabels = mlabels) 
 
-abm_video(
+#= abm_video(
     "thymus_abm_3Dvid_newtest.mp4",
     model2,
     cell_move!,
@@ -512,7 +521,7 @@ abm_video(
     as = cell_sizes,
     spf = 1,
     framerate = 100,
-)
+) =#
 
 #@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
 #adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
