@@ -24,8 +24,6 @@ mutable struct Tec <: AbstractAgent
     size::Float64                       # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     antigens::Array                     # List of antigens the Tec agent contains
-    age::Int                            # Age of agent; incremented after n steps
-    just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
 end
 
 mutable struct Dendritic <: AbstractAgent
@@ -38,8 +36,6 @@ mutable struct Dendritic <: AbstractAgent
     size::Float64                       # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     antigens::Array                     # List of antigens the Dendritic agent contains
-    age::Int                            # Age of agent; incremented after n steps
-    just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
 end
 
 mutable struct Thymocyte <: AbstractAgent
@@ -52,8 +48,6 @@ mutable struct Thymocyte <: AbstractAgent
     size::Float64                       # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     tcr::String                         # TCR that the thymocyte agent is carrying
-    age::Int                            # Age of agent; incremented after n steps
-    just_aged::Bool                     # Boolean to determine if agent just aged (true) on current model step
     reaction_levels::Dict               # Dict to hold thymocyte's seen antigens and reaction levels to them
     death_label::Bool                   # Label a thymocyte to be killed on its next step
     confined::Bool                      # Boolean if the thymocyte has been confined by an APC
@@ -86,6 +80,69 @@ Base.@kwdef mutable struct Parameters
     deaths::Int = deaths
     total_dead_thymocytes::Int = total_dead_thymocytes
     alive_thymocytes::Int = alive_thymocytes
+end
+
+function add_tecs!(model, n_tecs, color, size, replenishing)
+    for _ in 1:n_tecs
+        id = nextid(model)
+        pos = Tuple(rand(model.rng, 3))
+        velocity = (0.0, 0.0, 0.0)
+        mass = Inf
+        #if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs don't overlap
+        #    pos = Tuple(rand(model.rng, 3))
+        #end
+        if replenishing == false
+            num_interactions = rand(model.rng, 0:79)
+        else
+            num_interactions = 0
+        end
+
+        antis = sample(model.rng, model.peptides, num_interactions+100, replace = false) # choose a size sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        tec = Tec(id, pos, velocity, mass, :tec, color, size, num_interactions, antis)
+        add_agent!(tec, model)
+        set_color!(tec)
+    end
+end
+
+function add_dendritics!(model, n_dendritics, color, size)
+    for _ in 1:n_dendritics
+        id = nextid(model)
+        pos = Tuple(rand(model.rng, 3))
+        #if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs/dendritics don't overlap
+        #    pos = Tuple(rand(model.rng, 3))
+        #end
+        velocity = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
+        mass = 1.0
+        num_interactions = rand(model.rng, 0:79)
+
+        antis = sample(model.rng, model.peptides, 1, replace = false) # choose 1 antigen for DC to start with
+        dc = Dendritic(id, pos, velocity, mass, :dendritic, color, size, num_interactions, antis)
+        add_agent!(dc, model)
+        #set_color!(dc)
+    end
+end
+
+function add_thymocytes!(model, n_thymocytes, color, size)
+    for _ in 1:n_thymocytes
+        id = nextid(model)
+        model.total_thymocytes += 1
+        pos = Tuple(rand(model.rng, 3))
+        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
+        mass = 1.0
+        num_interactions = rand(model.rng, 0:79)
+
+        reaction_levels = Dict{String, Float64}()
+
+        tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
+
+        death_label = false
+        confined = false
+        bind_location = (0.0,0.0,0.0)
+        treg = false
+        thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, reaction_levels, death_label, confined, bind_location, treg)
+        add_agent!(thymocyte, model)
+        #set_color!(thymocyte)
+    end
 end
 
 function initialize(;
@@ -135,68 +192,10 @@ function initialize(;
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
 
     # Add agents to the model
-    id = 0
-    for _ in 1:n_tecs
-        id += 1
-        pos = Tuple(rand(model.rng, 3))
-        if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs don't overlap
-            pos = Tuple(rand(model.rng, 3))
-        end
-        vel = (0.0, 0.0, 0.0)
-        mass = Inf
-        color = "#00ffff"
-        size = 0.5
-        num_interactions = 0
-        age = rand(model.rng, 0:19) # randomize starting ages
-        just_aged = false
-        antis = sample(model.rng, peptides, age+100, replace = false) # choose an (age+2000) size sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(id, pos, vel, mass, :tec, color, size, num_interactions, antis, age, just_aged)
-        add_agent!(tec, model)
-        set_color!(tec)
-    end
+    add_tecs!(model, n_tecs, "#00ffff", 0.5, false)
+    add_dendritics!(model, n_dendritics, "#ffa500", 0.5)
+    add_thymocytes!(model, n_thymocytes, "#edf8e9", 0.2)
 
-    for _ in 1:n_dendritics
-        id += 1
-        pos = Tuple(rand(model.rng, 3))
-        if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs/dendritics don't overlap
-            pos = Tuple(rand(model.rng, 3))
-        end
-        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
-        mass = 1.0
-        color = "#ffa500"
-        size = 0.5
-        num_interactions = 0
-        age = rand(model.rng, 0:19) # randomize starting ages
-        just_aged = false
-        antis = sample(model.rng, peptides, 1, replace = false) # choose 1 antigen for DC to start with
-        dc = Dendritic(id, pos, vel, mass, :dendritic, color, size, num_interactions, antis, age, just_aged)
-        add_agent!(dc, model)
-        #set_color!(dc)
-    end
-
-    for _ in 1:n_thymocytes
-        id += 1
-        model.total_thymocytes += 1
-        pos = Tuple(rand(model.rng, 3))
-        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
-        mass = 1.0
-        color = "#edf8e9"
-        size = 0.2
-        num_interactions = 0
-        age = rand(model.rng, 0:3) # randomize starting ages
-        just_aged = false
-        reaction_levels = Dict{String, Float64}()
-
-        tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
-
-        death_label = false
-        confined = false
-        bind_location = (0.0,0.0,0.0)
-        treg = false
-        thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, age, just_aged, reaction_levels, death_label, confined, bind_location, treg)
-        add_agent!(thymocyte, model)
-        #set_color!(thymocyte)
-    end
     return model
 end
 
@@ -217,30 +216,24 @@ function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
                     agent.vel = -1 .* agent.vel
                 end
             end
-            move_agent!(agent, model, model.dt)
-        else
-            move_agent!(agent, model, model.dt)
         end
-        # add randomness to thymocytes' movements so they don't continue in same direction forever - maybe too much? fixes confinement movement though, but increases their velocity
-        #walk!(agent, (rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed,rand(model.rng, -model.width_height[1]:model.width_height[2]) .* model.speed), model)
-    elseif agent.type == :dendritic
-        move_agent!(agent, model, model.dt)
     end
+    move_agent!(agent, model, model.dt)
     set_color!(agent)
 end
 
 function set_color!(agent::Union{Tec, Dendritic, Thymocyte})
     if agent.type == :tec
-        if agent.age > 0
-            if agent.age <= 4
+        if agent.num_interactions > 0
+            if agent.num_interactions <= (80/5)
                 agent.color = "#00ddff"
-            elseif agent.age <= 8
+            elseif agent.num_interactions <= 2*(80/5)
                 agent.color = "#00aaff"
-            elseif agent.age <= 12
+            elseif agent.num_interactions <= 3*(80/5)
                 agent.color = "#0011ff"
-            elseif agent.age <= 16
+            elseif agent.num_interactions <= 4*(80/5)
                 agent.color = "#0044ff"
-            elseif agent.age <= 20
+            elseif agent.num_interactions <= 5*(80/5)
                 agent.color = "#0088ff"
             end
         end
@@ -339,19 +332,8 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
             break
         end
     end
-
-    thresh1 = a1.type == :thymocyte ? 10 : 20
-    thresh2 = a2.type == :thymocyte ? 10 : 20
-    if a1.num_interactions != 0 && a1.num_interactions % thresh1 == 0 # increment age after every thresh of agent's interactions
-        a1.age += 1
-        a1.just_aged = true
-        set_color!(a1)
-    end
-    if a2.num_interactions != 0 && a2.num_interactions % thresh2 == 0
-        a2.age += 1
-        a2.just_aged = true
-        set_color!(a2)
-    end
+    set_color!(a1)
+    set_color!(a2)
 end
 
 using LinearAlgebra
@@ -388,27 +370,15 @@ function model_step!(model) # happens after every agent has acted
         collide!(a1, a2)
     end
 
-    if model.tecs_present < model.n_tecs # generate new tec if one dies
-        model.tecs_present += 1
-        #overlap = true
-        #= while overlap == true =# # should be good to make sure new tecs don't overlap an existing tec - could be infinite loop or very long as less positions are available - though should never infinite loop if always replacing a dead one
-            pos = Tuple(rand(model.rng, 3))
-#=             for a in nearby_ids(pos, model, model.width_height[1]/2)
-                if getindex(model, a).type == :tec || getindex(model, a).type == :dendritic
-                    break
-                end
-                overlap = false
-            end
-        end =#
-        vel = (0.0, 0.0, 0.0)
-        antis = sample(model.rng, model.peptides, 1000, replace = false) # choose a sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
-        tec = Tec(nextid(model), pos, vel, Inf, :tec, "#00c8ff", 0.5, 0, antis, 0, false)
-        add_agent!(tec, model)
+    if model.tecs_present < model.n_tecs # generate new tecs if some died
+        tecs_missing = model.n_tecs - model.tecs_present
+        add_tecs!(model, tecs_missing, "#00c8ff", 0.5, true)
+        model.tecs_present += tecs_missing
     end
 
     for agent in allagents(model)
         escaped = false
-        if (agent.age >= 20 && agent.type == :tec) || (agent.age >= 4 && agent.type == :thymocyte)
+        if (agent.num_interactions >= 200 && agent.type == :tec) || (agent.num_interactions >= 80 && agent.type == :thymocyte)
             if agent.type == :tec
                 model.tecs_present -= 1 
             end
@@ -448,21 +418,12 @@ function model_step!(model) # happens after every agent has acted
             kill_agent!(agent, model)
         end
 
-        if agent.type == :tec && agent.age != 0 && agent.just_aged == true # add new antigen to list of tec antigens as it ages
+        if agent.type == :tec && agent.num_interactions != 0 && agent.num_interactions % 20 == 0# add new antigen to list of tec antigens as it ages
             push!(agent.antigens, sample(model.rng, model.peptides, 5, replace = false)...)#rand(model.rng, model.peptides))
-            agent.just_aged = false
         end
     end
 
-    for _ in 1:model.deaths # random chance to generate new thymocyte
-        pos = Tuple(rand(model.rng, 3))
-        vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
-        tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
-
-        thymocyte = Thymocyte(nextid(model), pos, vel, 1.0, :thymocyte, "#edf8e9", 0.2, 0, tcr, 0, false, Dict(), false, false, (0.0,0.0,0.0), false)
-        add_agent!(thymocyte, model)
-        model.total_thymocytes += 1
-    end
+    add_thymocytes!(model, model.deaths, "#edf8e9", 0.2) # replenish thymocytes
     model.deaths = 0
 
     model.alive_thymocytes = count(i->(i.type == :thymocyte), allagents(model))
@@ -482,8 +443,8 @@ end
 tec(a) = a.type == :tec
 thymocyte(a) = a.type == :thymocyte
 
-adata = [(thymocyte, count)]
-alabels = ["Alive Thymocytes"]
+adata = [(thymocyte, count), (tec, count)]
+alabels = ["Alive Thymocytes", "Alive mTECs"]
 #adata = [(thymocyte, count)]
 #alabels = ["thymocyte count"]
 
@@ -508,10 +469,10 @@ parange = Dict(:threshold => 0:0.01:1)
 
 figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
-    as = cell_sizes, ac = cell_colors,
+    as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
     mdata = mdata, mlabels = mlabels) 
-
-#= abm_video(
+#= 
+abm_video(
     "thymus_abm_3Dvid_newtest.mp4",
     model2,
     cell_move!,
