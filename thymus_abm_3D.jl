@@ -97,7 +97,7 @@ function add_tecs!(model, n_tecs, color, size, replenishing)
             num_interactions = 0
         end
 
-        antis = sample(model.rng, model.peptides, num_interactions+100, replace = false) # choose a size sample from peptides to act as tec's antigens (replace = false to avoid repetitions, or are repetitions wanted?)
+        antis = sample(model.rng, model.peptides, num_interactions+100) # choose a size sample from peptides to act as tec's antigens
         tec = Tec(id, pos, velocity, mass, :tec, color, size, num_interactions, antis)
         add_agent!(tec, model)
         set_color!(tec)
@@ -163,8 +163,6 @@ function initialize(;
 
     possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/validpeptides.txt",'\n')
     peptides = sample(rng, possible_antigens, total_peptides, replace=false)
-
-    #possible_antigens = [randstring(rng, "ACDEFGHIKLMNPQRSTVWY", 9) for i=1:45] # represents the 20 amino acids
 
     space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
 
@@ -381,8 +379,7 @@ function model_step!(model) # happens after every agent has acted
         if (agent.num_interactions >= 200 && agent.type == :tec) || (agent.num_interactions >= 80 && agent.type == :thymocyte)
             if agent.type == :tec
                 model.tecs_present -= 1 
-            end
-            if agent.type == :thymocyte
+            elseif agent.type == :thymocyte
                 model.deaths += 1
                 model.total_dead_thymocytes += 1
                 strong_reactions = 0
@@ -445,8 +442,6 @@ thymocyte(a) = a.type == :thymocyte
 
 adata = [(thymocyte, count), (tec, count)]
 alabels = ["Alive Thymocytes", "Alive mTECs"]
-#adata = [(thymocyte, count)]
-#alabels = ["thymocyte count"]
 
 react_ratio(model) = model.autoreactive_thymocytes/model.total_thymocytes # proportion of total killed/exited thymocytes that were autoreactive
 escape_ratio(model) = model.escaped_thymocytes/model.total_thymocytes  # proportion of total killed/exited thymocytes that escaped
