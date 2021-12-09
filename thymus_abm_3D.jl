@@ -13,6 +13,7 @@ using BenchmarkTools
 using DelimitedFiles
 using NamedArrays
 using NPZ
+using JSON
 
 mutable struct Tec <: AbstractAgent
     id::Int                             # Unique ID to identify agent
@@ -24,6 +25,7 @@ mutable struct Tec <: AbstractAgent
     size::Float64                       # Size of agent in videos
     num_interactions::Int               # Total number of interactions agent has
     antigens::Array                     # List of antigens the Tec agent contains
+    stage::Int                          # Maturation stage of Tec
 end
 
 mutable struct Dendritic <: AbstractAgent
@@ -80,6 +82,9 @@ Base.@kwdef mutable struct Parameters
     deaths::Int = deaths
     total_dead_thymocytes::Int = total_dead_thymocytes
     alive_thymocytes::Int = alive_thymocytes
+    stage_genes_peptides_dict::Vector{Any} = stage_genes_peptides_dict
+    max_tec_interactions::Int = max_tec_interactions
+    max_thymocyte_interactions::Int = max_thymocyte_interactions
 end
 
 function add_tecs!(model, n_tecs, color, size, replenishing)
@@ -92,19 +97,26 @@ function add_tecs!(model, n_tecs, color, size, replenishing)
         #    pos = Tuple(rand(model.rng, 3))
         #end
         if replenishing == false
-            num_interactions = rand(model.rng, 0:79)
+            num_interactions = rand(model.rng, 0:model.max_tec_interactions - 1)
         else
             num_interactions = 0
         end
 
-        antis = sample(model.rng, model.peptides, num_interactions+100) # choose a size sample from peptides to act as tec's antigens
-        tec = Tec(id, pos, velocity, mass, :tec, color, size, num_interactions, antis)
+        stage = rand(model.rng, 1:9) # figure out best way to increment stage
+        valid_genes_peptides = model.stage_genes_peptides_dict[stage]
+        # how many genes for 1 mTEC? do we explicitly care about keeping gene names, or just combine their peptides into 1 array?
+        # check rng
+        genes = rand(model.rng, valid_genes_peptides, 100)
+        peptides = vcat([gene[2] for gene in genes]...) # since gene is a gene -> peptides pair, gene[2] = peptides for that gene
+        #antis = sample(model.rng, model.peptides, num_interactions+100) # choose a size sample from peptides to act as tec's antigens
+        tec = Tec(id, pos, velocity, mass, :tec, color, size, num_interactions, peptides, stage)
         add_agent!(tec, model)
-        set_color!(tec)
+        set_color!(tec, model)
     end
 end
 
 function add_dendritics!(model, n_dendritics, color, size)
+    # review DC peptides - how many they start with, how they gain new ones
     for _ in 1:n_dendritics
         id = nextid(model)
         pos = Tuple(rand(model.rng, 3))
@@ -113,10 +125,17 @@ function add_dendritics!(model, n_dendritics, color, size)
         #end
         velocity = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
-        num_interactions = rand(model.rng, 0:79)
+        num_interactions = rand(model.rng, 0:model.max_tec_interactions - 1)
 
-        antis = sample(model.rng, model.peptides, 1, replace = false) # choose 1 antigen for DC to start with
-        dc = Dendritic(id, pos, velocity, mass, :dendritic, color, size, num_interactions, antis)
+        stage = rand(model.rng, 1:9) # figure out best way to increment stage
+        valid_genes_peptides = model.stage_genes_peptides_dict[stage]
+        # how many genes for 1 mTEC? do we explicitly care about keeping gene names, or just combine their peptides into 1 array?
+        # check rng
+        genes = rand(model.rng, valid_genes_peptides, 100)
+        peptides = vcat([gene[2] for gene in genes]...) # since gene is a gene -> peptides pair, gene[2] = peptides for that gene
+
+        #antis = sample(model.rng, model.peptides, 1, replace = false) # choose 1 antigen for DC to start with
+        dc = Dendritic(id, pos, velocity, mass, :dendritic, color, size, num_interactions, peptides)
         add_agent!(dc, model)
         #set_color!(dc)
     end
@@ -129,7 +148,7 @@ function add_thymocytes!(model, n_thymocytes, color, size)
         pos = Tuple(rand(model.rng, 3))
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
-        num_interactions = rand(model.rng, 0:79)
+        num_interactions = 0 #rand(model.rng, 0:model.max_thymocyte_interactions - 1) if want to randomize this, also have to randomize initial reaction levels
 
         reaction_levels = Dict{String, Float64}()
 
@@ -157,12 +176,17 @@ function initialize(;
     rng_seed = 1,
     synapse_interactions = 1,
     min_strong_interactions = 1,
-    total_peptides = 10000)
+    total_peptides = 10000,
+    max_tec_interactions = 200,
+    max_thymocyte_interactions = 80)
 
     rng = MersenneTwister(rng_seed)
 
     possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/validpeptides.txt",'\n')
-    peptides = sample(rng, possible_antigens, total_peptides, replace=false)
+    #peptides = sample(rng, possible_antigens, total_peptides, replace=false)
+    peptides = unique(vec(possible_antigens))
+
+    stage_genes_peptides_dict = JSON.parsefile("/home/mulle/Documents/JuliaFiles/thymus_ABM/genesPeptides/stage_genes_peptides.json")
 
     space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
 
@@ -185,7 +209,8 @@ function initialize(;
     aa_matrix = NamedArray(aa_data,(collect(1:9), aas, aas), ("Pos","Rows","Cols"))
 
     properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, peptides, successful_interactions, unsuccessful_interactions, escaped_thymocytes, autoreactive_thymocytes, nonautoreactive_thymocytes,
-     total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix, synapse_interactions, min_strong_interactions, total_peptides, deaths, total_dead_thymocytes, alive_thymocytes)
+     total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix, synapse_interactions, min_strong_interactions, total_peptides, deaths, total_dead_thymocytes, alive_thymocytes, stage_genes_peptides_dict, max_tec_interactions,
+     max_thymocyte_interactions)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
 
@@ -217,23 +242,14 @@ function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
         end
     end
     move_agent!(agent, model, model.dt)
-    set_color!(agent)
+    set_color!(agent, model)
 end
 
-function set_color!(agent::Union{Tec, Dendritic, Thymocyte})
+function set_color!(agent::Union{Tec, Dendritic, Thymocyte}, model)
     if agent.type == :tec
-        if agent.num_interactions > 0
-            if agent.num_interactions <= (80/5)
-                agent.color = "#00ddff"
-            elseif agent.num_interactions <= 2*(80/5)
-                agent.color = "#00aaff"
-            elseif agent.num_interactions <= 3*(80/5)
-                agent.color = "#0011ff"
-            elseif agent.num_interactions <= 4*(80/5)
-                agent.color = "#0044ff"
-            elseif agent.num_interactions <= 5*(80/5)
-                agent.color = "#0088ff"
-            end
+        colors = ["#f7fbff","#deebf7","#c6dbef","#9ecae1","#6baed6","#4292c6","#2171b5","#08519c","#08306b"]
+        if agent.stage <= length(model.stage_genes_peptides_dict)
+            agent.color = colors[agent.stage]
         end
     elseif agent.type == :thymocyte
         if agent.confined == true
@@ -279,9 +295,6 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
     else
         return
     end
-
-    thymocyte_agent.num_interactions += 1
-    tec_agent.num_interactions += 1 
 
     # compare a chosen tec antigen sequence to thymocyte TCR sequence
     # choose random antigen from tec's antigens to compare thymocyte tcr to. use aa_matrix to retrieve stength of interaction, comparing characters one by one
@@ -330,8 +343,25 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
             break
         end
     end
-    set_color!(a1)
-    set_color!(a2)
+    # change stages here?
+    thymocyte_agent.num_interactions += 1
+    tec_agent.num_interactions += 1 
+    update_tec_stage(tec_agent, model)
+
+    set_color!(a1, model)
+    set_color!(a2, model)
+end
+
+function update_tec_stage(tec, model)
+    if tec.num_interactions >= model.max_tec_interactions / length(model.stage_genes_peptides_dict) && tec.type == :tec
+        tec.stage += 1
+        if tec.stage <= length(model.stage_genes_peptides_dict)
+            valid_genes_peptides = model.stage_genes_peptides_dict[tec.stage]
+            genes = rand(model.rng, valid_genes_peptides, 100)
+            tec.antigens  = vcat([gene[2] for gene in genes]...)
+            tec.num_interactions = 0
+        end
+    end
 end
 
 using LinearAlgebra
@@ -368,15 +398,9 @@ function model_step!(model) # happens after every agent has acted
         collide!(a1, a2)
     end
 
-    if model.tecs_present < model.n_tecs # generate new tecs if some died
-        tecs_missing = model.n_tecs - model.tecs_present
-        add_tecs!(model, tecs_missing, "#00c8ff", 0.5, true)
-        model.tecs_present += tecs_missing
-    end
-
     for agent in allagents(model)
         escaped = false
-        if (agent.num_interactions >= 200 && agent.type == :tec) || (agent.num_interactions >= 80 && agent.type == :thymocyte)
+        if (agent.type == :tec && agent.stage >= length(model.stage_genes_peptides_dict) + 1) || (agent.num_interactions >= model.max_thymocyte_interactions && agent.type == :thymocyte)
             if agent.type == :tec
                 model.tecs_present -= 1 
             elseif agent.type == :thymocyte
@@ -414,10 +438,17 @@ function model_step!(model) # happens after every agent has acted
             end
             kill_agent!(agent, model)
         end
+        
+        # fix aging
+        #if agent.type == :tec && agent.num_interactions != 0 && agent.num_interactions % 20 == 0# add new antigen to list of tec antigens as it ages
+        #    push!(agent.antigens, sample(model.rng, model.peptides, 5, replace = false)...)#rand(model.rng, model.peptides))
+        #end
+    end
 
-        if agent.type == :tec && agent.num_interactions != 0 && agent.num_interactions % 20 == 0# add new antigen to list of tec antigens as it ages
-            push!(agent.antigens, sample(model.rng, model.peptides, 5, replace = false)...)#rand(model.rng, model.peptides))
-        end
+    if model.tecs_present < model.n_tecs # generate new tecs if some died
+        tecs_missing = model.n_tecs - model.tecs_present
+        add_tecs!(model, tecs_missing, "#00c8ff", 0.5, true)
+        model.tecs_present += tecs_missing
     end
 
     add_thymocytes!(model, model.deaths, "#edf8e9", 0.2) # replenish thymocytes
@@ -457,16 +488,16 @@ mlabels = ["Autoreactive Thymocytes", "Non-autoreactive Thymocytes", "Escaped Au
 
 dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 agent_speed = 0.0015 * dims[1]
-model2 = initialize(; width_height = dims, n_tecs = 100, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 1.0, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 1, min_strong_interactions = 1,
+model2 = initialize(; width_height = dims, n_tecs = 100, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 5.0, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 1, min_strong_interactions = 1,
     total_peptides = 1000)
 
 parange = Dict(:threshold => 0:0.01:1)
 
-figure, adf, mdf = abm_data_exploration(
+#= figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
-    as = cell_sizes, ac = cell_colors, adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels) 
-#= 
+    as = cell_sizes, ac = cell_colors, #adata = adata, alabels = alabels,
+    mdata = mdata, mlabels = mlabels)  =#
+
 abm_video(
     "thymus_abm_3Dvid_newtest.mp4",
     model2,
@@ -477,13 +508,13 @@ abm_video(
     as = cell_sizes,
     spf = 1,
     framerate = 100,
-) =#
+)
 
 #@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
 #adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
 #= adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
 x = mdf.step
-thy_data = mdf.react_ratio
+thy_data = mdf.nonautoreactive_thymocytes
 figure = Figure(resolution = (600, 400))
 ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Proportion")
 ax.title = "Proportion of Autoreactive to Nonautoreactive Thymocytes"
