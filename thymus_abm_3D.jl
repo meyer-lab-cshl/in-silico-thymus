@@ -108,7 +108,7 @@ function add_tecs!(model, n_tecs, color, size, replenishing)
             stage = rand(model.rng, 1:length(model.stage_genes_peptides_dict))
         else
             num_interactions = 0
-            stage = 0
+            stage = 1
         end
 
         valid_genes_peptides = model.stage_genes_peptides_dict[stage]
