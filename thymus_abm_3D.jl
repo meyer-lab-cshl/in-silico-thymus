@@ -15,6 +15,13 @@ using NamedArrays
 using NPZ
 using JSON
 
+################## optimize checking of all peptides for escaped autoreactives #################
+# make Set of only genes/peptides actually present in simulation?
+# or keep it to be entire .txt file? - this is how it is currently
+################## check tec_DC interaction ####################################################
+# how to transfer peptides?
+# all or only some? - transfer all for now
+
 mutable struct Tec <: AbstractAgent
     id::Int                             # Unique ID to identify agent
     pos::NTuple{3,Float64}              # 2D position of agent
@@ -98,11 +105,12 @@ function add_tecs!(model, n_tecs, color, size, replenishing)
         #end
         if replenishing == false
             num_interactions = rand(model.rng, 0:model.max_tec_interactions - 1)
+            stage = rand(model.rng, 1:length(model.stage_genes_peptides_dict))
         else
             num_interactions = 0
+            stage = 0
         end
 
-        stage = rand(model.rng, 1:9) # figure out best way to increment stage
         valid_genes_peptides = model.stage_genes_peptides_dict[stage]
         # how many genes for 1 mTEC? do we explicitly care about keeping gene names, or just combine their peptides into 1 array?
         # check rng
@@ -127,7 +135,7 @@ function add_dendritics!(model, n_dendritics, color, size)
         mass = 1.0
         num_interactions = rand(model.rng, 0:model.max_tec_interactions - 1)
 
-        stage = rand(model.rng, 1:9) # figure out best way to increment stage
+        stage = rand(model.rng, 1:length(model.stage_genes_peptides_dict)) # figure out best way to increment stage
         valid_genes_peptides = model.stage_genes_peptides_dict[stage]
         # how many genes for 1 mTEC? do we explicitly care about keeping gene names, or just combine their peptides into 1 array?
         # check rng
@@ -145,6 +153,7 @@ function add_thymocytes!(model, n_thymocytes, color, size)
     for _ in 1:n_thymocytes
         id = nextid(model)
         model.total_thymocytes += 1
+        model.alive_thymocytes += 1
         pos = Tuple(rand(model.rng, 3))
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
@@ -197,9 +206,9 @@ function initialize(;
     escaped_thymocytes = 0
     deaths = 0
     total_dead_thymocytes = 0
-    alive_thymocytes = 10000
+    alive_thymocytes = 0
 
-    total_thymocytes = 10000
+    total_thymocytes = 0
     num_tregs = 0
     # Data from Derivation of an amino acid similarity matrix for peptide:MHC binding and its application as a Bayesian prior
     #aa_data, header = readdlm("/home/mulle/Downloads/12859_2009_3124_MOESM2_ESM.MAT", header=true)
@@ -254,9 +263,9 @@ function set_color!(agent::Union{Tec, Dendritic, Thymocyte}, model)
     elseif agent.type == :thymocyte
         if agent.confined == true
             agent.color = "#ffff00"
-        elseif any(x -> x <= 0.25, values(agent.reaction_levels))
+        elseif any(x -> x <= model.threshold / 4, values(agent.reaction_levels))
             agent.color = "#bae4b3"
-        elseif any(x -> x <= 0.50, values(agent.reaction_levels))
+        elseif any(x -> x <= model.threshold / 2, values(agent.reaction_levels))
             agent.color = "#74c476"
         elseif any(x -> x <= Inf, values(agent.reaction_levels))
             agent.color = "#238b45"
@@ -280,9 +289,10 @@ function tec_DC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, D
         return
     end
 
-    peptides = rand(model.rng, tec_agent.antigens, model.synapse_interactions)
+    #peptides = rand(model.rng, tec_agent.antigens, model.synapse_interactions)
 
-    push!(dendritic_agent.antigens, peptides...)#rand(model.rng, model.peptides))
+    #push!(dendritic_agent.antigens, peptides...)#rand(model.rng, model.peptides))
+    dendritic_agent.antigens = tec_agent.antigens
 end
 
 function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
