@@ -1,6 +1,6 @@
 ## thymus_ABM
 
-Official implementation of agent-based model to simulate negative selection in the thymus.
+Implementation of agent-based model to simulate negative selection in the thymus.
 
 ### Requirements
 Base
