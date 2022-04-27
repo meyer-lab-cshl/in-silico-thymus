@@ -19,6 +19,7 @@ using JSON
 using CSV
 using ArgParse
 using LinearAlgebra
+using Mmap
 
 ################## optimize checking of all peptides for escaped autoreactives #################
 # make Set of only genes/peptides actually present in simulation?
@@ -28,6 +29,17 @@ using LinearAlgebra
 # all or only some? - transfer all for now
 """
     Tec
+    id::Int                             # Unique ID to identify agent
+    pos::NTuple{3,Float64}              # 2D position of agent
+    vel::NTuple{3,Float64}              # 2D velocity of agent
+    mass::Float64                       # Mass of agent to use in collisions
+    type::Symbol                        # Cell type of agent
+    color::String                       # Color used for agent in videos
+    size::Float64                       # Size of agent in videos
+    num_interactions::Int               # Total number of interactions agent has
+    antigens::Array                     # List of antigens the Tec agent contains
+    stage::Int                          # Maturation stage of Tec
+    steps_alive::Int                    # Number of steps the Tec agent has been alive for
 
 Tec agent struct.
 """
@@ -47,6 +59,16 @@ end
 
 """
     Dendritic
+    id::Int                             # Unique ID to identify agent
+    pos::NTuple{3,Float64}              # 2D position of agent
+    vel::NTuple{3,Float64}              # 2D velocity of agent
+    mass::Float64                       # Mass of agent to use in collisions
+    type::Symbol                        # Cell type of agent
+    color::String                       # Color used for agent in videos
+    size::Float64                       # Size of agent in videos
+    num_interactions::Int               # Total number of interactions agent has
+    antigens::Array                     # List of antigens the Dendritic agent contains
+    steps_alive::Int                    # Number of steps the Dendritic agent has been alive for
 
 Dendritic agent struct.
 """
@@ -65,6 +87,21 @@ end
 
 """
     Thymocyte
+    id::Int                             # Unique ID to identify agent
+    pos::NTuple{3,Float64}              # 2D position of agent
+    vel::NTuple{3,Float64}              # 2D velocity of agent
+    mass::Float64                       # Mass of agent to use in collisions
+    type::Symbol                        # Cell type of agent
+    color::String                       # Color used for agent in videos
+    size::Float64                       # Size of agent in videos
+    num_interactions::Int               # Total number of interactions agent has
+    tcr::String                         # TCR that the thymocyte agent is carrying
+    reaction_levels::Dict               # Dict to hold thymocyte's seen antigens and reaction levels to them
+    death_label::Bool                   # Label a thymocyte to be killed on its next step
+    confined::Bool                      # Boolean if the thymocyte has been confined by an APC
+    bind_location::NTuple{3,Float64}    # Location of binding w/ APC that led to confinement
+    treg::Bool                          # Boolean if thymocyte meets Treg threshold or not
+    steps_alive::Int                    # Number of steps the Thymocyte agent has been alive for
 
 Thymocyte agent struct.
 """
@@ -88,38 +125,66 @@ end
 
 """
     Parameters
+    width_height::NTuple{3,Float64} = width_height                          # 3-Tuple of Float64 for 3 dimensions of the simulation (x, y, z)
+    speed::Float64 = speed                                                  # Float64 speed factor
+    dt::Float64 = dt                                                        # Float64 of time step governing movement/velocity of agents
+    n_tecs::Int = n_tecs                                                    # Int of number of mTECs to have in simulation
+    n_thymocytes::Int = n_thymocytes                                        # Int of number of thymocytes to have in simulation
+    n_dendritics::Int = n_dendritics                                        # Int of number of DCs to have in simulation
+    threshold::Int16 = threshold                                            # Int of negative selection threshold of thymocytes
+    peptides::Array = peptides                                              # Array of all possible peptides a mTEC/DC can present
+    tcrs::Array = tcrs                                                      # Array of generated TCRs for thymocyte to randomly select from
+    successful_interactions::Int = successful_interactions                  # Int of number of times a thymocyte was selected in an interaction with mTEC/DC
+    unsuccessful_interactions::Int = unsuccessful_interactions              # Int of number of times a thymocyte was not selected in an interaction with mTEC/DC
+    escaped_thymocytes::Int = 0                                             # Int of number of thymocytes that were not negatively selected that should have been
+    autoreactive_thymocytes::Int = 0                                        # Int of number of thymocytes that were negatively selected or escaped
+    nonautoreactive_thymocytes::Int = 0                                     # Int of number of thymocytes that were not autoreactive and can be assumed to have successfully exited the thymus
+    total_thymocytes::Int = 0                                               # Int of total number of thymocytes that have entered simulation
+    treg_threshold::Float64 = treg_threshold                                # Float64 setting the threshold for a nonautoreactive thymocyte to be classified as a Treg
+    num_tregs::Int = 0                                                      # Int of total number of Tregs that have successfully exited simulation
+    tecs_present::Int = n_tecs                                              # Int of number of mTECs currently present in the simulation
+    aa_matrix::NamedArray = aa_matrix                                       # NamedArray containing all possible interaction strengths between peptides and tcrs
+    synapse_interactions::Int = synapse_interactions                        # Int of total number of peptide:TCR reactions to calculate for one thymocyte:mTEC/DC interaction
+    min_strong_interactions::Int = min_strong_interactions                  # Int of minimum number of reactions in a thymocyte:mTEC/DC interaction that need to be strong enough to cause negative selection         
+    deaths::Int = deaths                                                    # Int of total number of thymocytes that have exited simulation for any reason at current step
+    total_dead_thymocytes::Int = total_dead_thymocytes                      # Int of total number of thymocytes that have exited simulation for any reason across all steps
+    alive_thymocytes::Int = alive_thymocytes                                # Int of total number of alive thymocytes at current step
+    stage_genes_peptides_dict::Vector{Any} = stage_genes_peptides_dict      # Vector holding the development stage information for mTECs (genes and corresponding peptides for each stage)
+    max_tec_interactions::Int = max_tec_interactions                        # Int of maximum number of interactions a mTEC can have before it "dies" and is replaced by a new one
+    max_thymocyte_interactions::Int = max_thymocyte_interactions            # Int of maximum number of interactions a thymocyte must have before it leaves as a nonautoreactive T cell
+    step::Int = 0                                                           # Int of current step of simulation
 
 Parameters struct.
 """
 Base.@kwdef mutable struct Parameters
-    width_height::NTuple{3,Float64} = width_height
-    speed::Float64 = speed
-    dt::Float64 = dt
-    n_tecs::Int = n_tecs
-    n_thymocytes::Int = n_thymocytes
-    n_dendritics::Int = n_dendritics
-    threshold::Float64 = threshold
-    peptides::Array = peptides
-    successful_interactions::Int = successful_interactions
-    unsuccessful_interactions::Int = unsuccessful_interactions
-    escaped_thymocytes::Int = 0
-    autoreactive_thymocytes::Int = 0
-    nonautoreactive_thymocytes::Int = 0
-    total_thymocytes::Int = 0
-    treg_threshold::Float64 = treg_threshold
-    num_tregs::Int = 0
-    tecs_present::Int = n_tecs
-    aa_matrix::NamedArray = aa_matrix
-    synapse_interactions::Int = synapse_interactions
-    min_strong_interactions::Int = min_strong_interactions
-    total_peptides::Int = total_peptides
-    deaths::Int = deaths
-    total_dead_thymocytes::Int = total_dead_thymocytes
-    alive_thymocytes::Int = alive_thymocytes
-    stage_genes_peptides_dict::Vector{Any} = stage_genes_peptides_dict
-    max_tec_interactions::Int = max_tec_interactions
-    max_thymocyte_interactions::Int = max_thymocyte_interactions
-    step::Int = 0
+    width_height::NTuple{3,Float64} = width_height                          # 3-Tuple of Float64 for 3 dimensions of the simulation (x, y, z)
+    speed::Float64 = speed                                                  # Float64 speed factor
+    dt::Float64 = dt                                                        # Float64 of time step governing movement/velocity of agents
+    n_tecs::Int = n_tecs                                                    # Int of number of mTECs to have in simulation
+    n_thymocytes::Int = n_thymocytes                                        # Int of number of thymocytes to have in simulation
+    n_dendritics::Int = n_dendritics                                        # Int of number of DCs to have in simulation
+    threshold::Int16 = threshold                                            # Int of negative selection threshold of thymocytes
+    peptides::Array = peptides                                              # Array of all possible peptides a mTEC/DC can present
+    tcrs::Array = tcrs                                                      # Array of generated TCRs for thymocyte to randomly select from
+    successful_interactions::Int = successful_interactions                  # Int of number of times a thymocyte was selected in an interaction with mTEC/DC
+    unsuccessful_interactions::Int = unsuccessful_interactions              # Int of number of times a thymocyte was not selected in an interaction with mTEC/DC
+    escaped_thymocytes::Int = 0                                             # Int of number of thymocytes that were not negatively selected that should have been
+    autoreactive_thymocytes::Int = 0                                        # Int of number of thymocytes that were negatively selected or escaped
+    nonautoreactive_thymocytes::Int = 0                                     # Int of number of thymocytes that were not autoreactive and can be assumed to have successfully exited the thymus
+    total_thymocytes::Int = 0                                               # Int of total number of thymocytes that have entered simulation
+    treg_threshold::Float64 = treg_threshold                                # Float64 setting the threshold for a nonautoreactive thymocyte to be classified as a Treg
+    num_tregs::Int = 0                                                      # Int of total number of Tregs that have successfully exited simulation
+    tecs_present::Int = n_tecs                                              # Int of number of mTECs currently present in the simulation
+    aa_matrix::NamedArray = aa_matrix                                       # NamedArray containing all possible interaction strengths between peptides and tcrs
+    synapse_interactions::Int = synapse_interactions                        # Int of total number of peptide:TCR reactions to calculate for one thymocyte:mTEC/DC interaction
+    min_strong_interactions::Int = min_strong_interactions                  # Int of minimum number of reactions in a thymocyte:mTEC/DC interaction that need to be strong enough to cause negative selection         
+    deaths::Int = deaths                                                    # Int of total number of thymocytes that have exited simulation for any reason at current step
+    total_dead_thymocytes::Int = total_dead_thymocytes                      # Int of total number of thymocytes that have exited simulation for any reason across all steps
+    alive_thymocytes::Int = alive_thymocytes                                # Int of total number of alive thymocytes at current step
+    stage_genes_peptides_dict::Vector{Any} = stage_genes_peptides_dict      # Vector holding the development stage information for mTECs (genes and corresponding peptides for each stage)
+    max_tec_interactions::Int = max_tec_interactions                        # Int of maximum number of interactions a mTEC can have before it "dies" and is replaced by a new one
+    max_thymocyte_interactions::Int = max_thymocyte_interactions            # Int of maximum number of interactions a thymocyte must have before it leaves as a nonautoreactive T cell
+    step::Int = 0                                                           # Int of current step of simulation
 end
 
 """
@@ -202,11 +267,12 @@ function add_thymocytes!(model, n_thymocytes, color, size, initial)
         pos = Tuple(rand(model.rng, 3))
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
-        tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
+        #tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
+        tcr = rand(model.rng, model.tcrs)
         steps_alive = 0
         if initial == true
             num_interactions = rand(model.rng, 0:model.max_thymocyte_interactions - 1) #if want to randomize this, also have to randomize initial reaction levels
-            reaction_levels = Dict{String, Float64}()
+            reaction_levels = Dict{String, Int16}()
             if num_interactions != 0
                 for i in 1:num_interactions
                     pept = rand(model.rng, model.peptides)
@@ -215,7 +281,7 @@ function add_thymocytes!(model, n_thymocytes, color, size, initial)
             end
         else
             num_interactions = 0
-            reaction_levels = Dict{String, Float64}()
+            reaction_levels = Dict{String, Int16}()
         end
 
         death_label = false
@@ -233,15 +299,18 @@ calculate_reaction_strength(model, peptide, tcr, reaction_levels)
 
 Calculate the strength of the interaction between given peptide and tcr for the model. Store the calculated strength in the Thymocyte's reaction_levels dictionary.
 """
-function calculate_reaction_strength(model, peptide, tcr, reaction_levels)
-    reaction = 1.0
+function calculate_reaction_strength(model, peptide,  tcr, reaction_levels)
+#=     reaction = 1.0
     for i in range(1, length(peptide), step=1)
         antigen_aa = peptide[i]
         tcr_aa = tcr[i]
         reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
     end
-    reaction = reaction^(1/length(peptide))
-
+    reaction = reaction^(1/length(peptide)) =#
+    reaction = model.aa_matrix[peptide, tcr]
+    if reaction > 100
+        reaction = 100
+    end
     if get(reaction_levels, peptide, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
         reaction_levels[peptide] += reaction
     else # otherwise, add antigen as a new entry to the reaction_levels dict
@@ -262,7 +331,6 @@ initialize(;
     rng_seed = 1,
     synapse_interactions = 1,
     min_strong_interactions = 1,
-    total_peptides = 10000,
     max_tec_interactions = 200,
     max_thymocyte_interactions = 80)
 
@@ -280,16 +348,15 @@ function initialize(;
     rng_seed = 1,
     synapse_interactions = 1,
     min_strong_interactions = 1,
-    total_peptides = 10000,
     max_tec_interactions = 200,
     max_thymocyte_interactions = 80)
 
     rng = MersenneTwister(rng_seed)
     step = 0
 
-    possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/validpeptides.txt",'\n')
-    #peptides = sample(rng, possible_antigens, total_peptides, replace=false)
-    peptides = unique(vec(possible_antigens))
+#=     possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/validpeptides.txt",'\n')
+    #peptides = sample(rng, possible_antigens, replace=false)
+    peptides = unique(vec(possible_antigens)) =#
 
     stage_genes_peptides_dict = JSON.parsefile("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/stage_genes_peptides.json")
 
@@ -307,12 +374,17 @@ function initialize(;
     total_thymocytes = 0
     num_tregs = 0
 
-    aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/H2_proportional_binding_matrices.npy")
-    aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
-    aa_matrix = NamedArray(aa_data,(collect(1:9), aas, aas), ("Pos","Rows","Cols"))
+    #aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/H2_proportional_binding_matrices.npy")
+    #aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+    pepts = readlines(open("/home/mulle/peptidematching/uniquepeptides.txt"))
+    tcrs = readlines(open("/home/mulle/peptidematching/tcrs10000.txt"))
+    matches = open("/home/mulle/peptidematching/matchesint.dist")
+    matr = Mmap.mmap(matches, Matrix{Int16}, (size(pepts)[1], size(tcrs)[1]))
+    aa_matrix = NamedArray(matr, (pepts, tcrs), ("pepts", "TCRs"))
+    close(matches)
 
-    properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, peptides, successful_interactions, unsuccessful_interactions, escaped_thymocytes, autoreactive_thymocytes, nonautoreactive_thymocytes,
-        total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix, synapse_interactions, min_strong_interactions, total_peptides, deaths, total_dead_thymocytes, alive_thymocytes, stage_genes_peptides_dict, max_tec_interactions,
+    properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, pepts, tcrs, successful_interactions, unsuccessful_interactions, escaped_thymocytes, autoreactive_thymocytes, nonautoreactive_thymocytes,
+        total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix, synapse_interactions, min_strong_interactions, deaths, total_dead_thymocytes, alive_thymocytes, stage_genes_peptides_dict, max_tec_interactions,
         max_thymocyte_interactions, step)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
@@ -425,7 +497,7 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
     # if a reaction level passes the model threshold, the thymocyte is killed
     antigens = rand(model.rng, tec_agent.antigens, model.synapse_interactions)
     
-    total_strength = 0.0
+    total_strength = 0
     strong_reactions = 0
     for antigen in antigens
         calculate_reaction_strength(model, antigen, thymocyte_agent.tcr, thymocyte_agent.reaction_levels)
@@ -520,6 +592,7 @@ function model_step!(model) # happens after every agent has acted
     if model.step % 100 == 0
         println(model.step)
     end
+
     interaction_radius = 0.06*model.width_height[1]
     for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
@@ -540,14 +613,22 @@ function model_step!(model) # happens after every agent has acted
                 model.total_dead_thymocytes += 1
                 strong_reactions = 0
                 for antigen in model.peptides # check if exiting thymocyte was autoreactive by comparing its TCR to every peptide possible to be presented
-                    reaction = 1.0
+#=                     reaction = 1.0
                     for i in range(1, length(antigen), step=1)
                         antigen_aa = antigen[i]
                         tcr_aa = agent.tcr[i]
                         reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
                     end
-                    reaction = reaction^(1/length(antigen))
-            
+                    reaction = reaction^(1/length(antigen)) =#
+                    reaction = model.aa_matrix[antigen, agent.tcr]
+                    if reaction > 100
+                        reaction = 100
+                    end
+#=                     if get(agent.reaction_levels, antigen, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
+                        agent.reaction_levels[antigen] += reaction
+                    else # otherwise, add antigen as a new entry to the reaction_levels dict
+                        agent.reaction_levels[antigen] = reaction
+                    end =#
                     if reaction >= model.threshold
                         strong_reactions += 1
                     end
@@ -652,8 +733,8 @@ function parse_commandline()
             default = 5000
         "--selection_threshold"
             help = "Help"
-            arg_type = Float64
-            default = 1.6
+            arg_type = Int
+            default = 100
         "--dt"
             help = "Help"
             arg_type = Float64
@@ -743,21 +824,21 @@ global mlabels = ["number of tregs", "autoreactive", "escaped", "nonautoreactive
 global dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 global agent_speed = 0.0015 * dims[1]
 #model2 = initialize(; width_height = dims, n_tecs = 500, n_dendritics = 50, n_thymocytes = 5000, speed = agent_speed, threshold = 1.6, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 3, min_strong_interactions = 1,
-#    total_peptides = 1000)
+#)
 parsed_args = parse_commandline()
 model2 = initialize(; width_height = tuple(parsed_args["dim1"], parsed_args["dim2"], parsed_args["dim3"]), n_tecs = parsed_args["n_tecs"], n_dendritics = parsed_args["n_dendritics"], 
 n_thymocytes = parsed_args["n_thymocytes"], speed = agent_speed, threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = 0.6, 
-synapse_interactions = parsed_args["synapse_interactions"], min_strong_interactions = parsed_args["min_strong_interactions"], total_peptides = 1000)
+synapse_interactions = parsed_args["synapse_interactions"], min_strong_interactions = parsed_args["min_strong_interactions"])
 
-global parange = Dict(:threshold => 0:0.01:1)
+#global parange = Dict(:threshold => 0:0.01:1)
 
 @time adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
-CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/Dec15/atest.csv", adf) # first w/ 42 seed, second with 43
-CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/Dec15/mtest.csv", mdf)
+CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/Dec15/atestapr11new.csv", adf) # first w/ 42 seed, second with 43
+CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/Dec15/mtestapr11new.csv", mdf)
 #= global ctr = 0
 for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
     global ctr += 1
-    if ctr >= 501
+    if ctr >= 495
         println(ctr)
         data = split(line)
         thy = trunc(Int,parse(Float64,data[1]))
@@ -767,7 +848,7 @@ for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/te
         thresh = parse(Float64,data[5])
         model = initialize(; width_height = (10.0,10.0,10.0), n_tecs = mtec, n_dendritics = dc, 
         n_thymocytes = thy, speed = agent_speed, threshold = thresh, dt = 1.0, rng_seed = 1, treg_threshold = 0.6, 
-        synapse_interactions = interacts, min_strong_interactions = 1, total_peptides = 1000)
+        synapse_interactions = interacts, min_strong_interactions = 1)
         adf, mdf = run!(model, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
 
         open("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/newmyfile2.txt", "a") do io
