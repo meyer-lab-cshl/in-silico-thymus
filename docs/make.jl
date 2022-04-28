@@ -10,6 +10,4 @@ makedocs(sitename="My Documentation",
 		]
 	)
 
-deploydocs(
-    repo = "github.com/meyer-lab-cshl/ThymusABM.jl.git",
-)
+deploydocs(repo = "github.com/meyer-lab-cshl/ThymusABM.jl.git")
