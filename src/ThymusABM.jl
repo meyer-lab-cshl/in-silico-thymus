@@ -9,7 +9,6 @@ using Agents: length, isempty, getindex
 using Agents
 using Random
 using InteractiveDynamics
-using GLMakie # GLMakie needed for abm_data_exploration, CairoMakie does not work correctly with it but does work for plots/videos
 using Statistics: mean
 using StatsBase # used to sample without replacement
 using DelimitedFiles
