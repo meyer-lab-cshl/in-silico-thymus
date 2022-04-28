@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ThymusABM
 =======
 ## thymus_ABM
