@@ -358,7 +358,7 @@ function initialize(;
     #peptides = sample(rng, possible_antigens, replace=false)
     peptides = unique(vec(possible_antigens)) =#
 
-    stage_genes_peptides_dict = JSON.parsefile("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/stage_genes_peptides.json")
+    stage_genes_peptides_dict = JSON.parsefile("/home/mulle/Documents/JuliaFiles/thymus_ABM/ThymusABM/data/stage_genes_peptides.json")
 
     space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
 
