@@ -189,7 +189,7 @@ end
 """
     add_tecs!(model, n_tecs, color, size, replenishing)
 
-Adds n_tecs number of Tecs to the model of given color and size. Boolean replenishing determines if Tec is an initial Tec (true), or added to the model later on (false).
+Adds `n_tecs` number of Tecs to the `model` of given `color` and `size`. Boolean `replenishing` determines if Tec is an initial Tec (true), or added to the model later on (false).
 """
 function add_tecs!(model, n_tecs, color, size, replenishing)
     for _ in 1:n_tecs
@@ -224,7 +224,7 @@ end
 """
     add_dendritics!(model, n_dendritics, color, size)
 
-Adds n_dendritics number of Dendritics to the model of given color and size.
+Adds `n_dendritics` number of Dendritics to the `model` of given `color` and `size`.
 """
 function add_dendritics!(model, n_dendritics, color, size)
     # review DC peptides - how many they start with, how they gain new ones
@@ -256,7 +256,7 @@ end
 """
     add_thymocytes!(model, n_thymocytes, color, size, initial)
 
-Adds n_thymocytes number of Thymocytes to the model of given color and size. Boolean initial determines if Thymocyte is an initial Thymocyte (true), or added to the model later on (false).
+Adds `n_thymocytes` number of Thymocytes to the `model` of given `color` and `size`. Boolean `initial` determines if Thymocyte is an initial Thymocyte (true), or added to the model later on (false).
 """
 function add_thymocytes!(model, n_thymocytes, color, size, initial)
     for _ in 1:n_thymocytes
@@ -296,7 +296,7 @@ end
 """
     calculate_reaction_strength(model, peptide, tcr, reaction_levels)
 
-Calculate the strength of the interaction between given peptide and tcr for the model. Store the calculated strength in the Thymocyte's reaction_levels dictionary.
+Calculate the strength of the interaction between given `peptide` and `tcr` for the `model`. Store the calculated strength in the Thymocyte's `reaction_levels` dictionary.
 """
 function calculate_reaction_strength(model, peptide,  tcr, reaction_levels)
 #=     reaction = 1.0
@@ -333,7 +333,7 @@ end
         max_tec_interactions = 200,
         max_thymocyte_interactions = 80)
 
-Initialize the model with default or specified parameters.
+Initialize the model with default or specified parameters. Returns the initialized `model`.
 """
 function initialize(;
     width_height = (1.0, 1.0, 1.0),
@@ -400,7 +400,7 @@ end
 """
     cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
 
-Move the given agent of the model according to its type.
+Move the given `agent` of the `model` according to its type.
 """
 function cell_move!(agent::Union{Tec, Dendritic, Thymocyte}, model)
     if agent.type == :thymocyte
@@ -427,7 +427,7 @@ end
 """
     set_color!(agent::Union{Tec, Dendritic, Thymocyte}, model)
 
-Set the color of the given agent of the model according to its type.
+Set the color of the given `agent` of the `model` according to its type.
 """
 function set_color!(agent::Union{Tec, Dendritic, Thymocyte}, model)
     if agent.type == :tec
@@ -456,7 +456,7 @@ end
 """
     tec_DC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
 
-Governs the interaction between a Tec and Dendritic who come into contact. Transfers Tec antigens to Dendritic antigens.
+Governs the interaction between a Tec and Dendritic of the `model` who come into contact. Transfers Tec antigens to Dendritic antigens.
 """
 function tec_DC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
     if a1.type == :tec && a2.type == :dendritic # if tec/thymocyte collide, they can interact. relabel them here for simplicity
@@ -478,7 +478,7 @@ end
 """
     thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
 
-Governs the interaction between a Thymocyte and Tec (or Dendritic) of the model who come into contact. Calculates Thymocyte TCR binding affinity to one of Tec or Dendritic's peptides.
+Governs the interaction between a Thymocyte and Tec (or Dendritic) of the `model` who come into contact. Calculates Thymocyte TCR binding affinity to one of Tec or Dendritic's peptides.
 """
 function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union{Tec, Dendritic, Thymocyte}, model)
     if (a1.type == :tec || a1.type == :dendritic) && a2.type == :thymocyte # if tec/thymocyte collide, they can interact. relabel them here for simplicity
@@ -539,7 +539,7 @@ end
 """
     update_tec_stage(tec, model)
 
-Updates the development stage of the given Tec tec of the model according to how many interactions with Thymocytes it has had so far.
+Updates the development stage of the given Tec agent `tec` of the `model` according to how many interactions with Thymocytes it has had so far.
 """
 function update_tec_stage(tec, model)
     if tec.num_interactions >= model.max_tec_interactions / length(model.stage_genes_peptides_dict) && tec.type == :tec
@@ -556,7 +556,7 @@ end
 """
     collide!(a::Union{Tec, Dendritic, Thymocyte}, b::Union{Tec, Dendritic, Thymocyte})
 
-Calculates an elastic collision between two agents, a and b, when they collide with each other. Adapted from Agents.jl elastic_collision and modified to work for 3D animations.
+Calculates an elastic collision between two agents, `a` and `b`, when they collide with each other. Adapted from Agents.jl elastic_collision and modified to work for 3D animations.
 """
 function collide!(a::Union{Tec, Dendritic, Thymocyte}, b::Union{Tec, Dendritic, Thymocyte})
     # using http://www.hakenberg.de/diffgeo/collision_resolution.htm without any angular information
@@ -584,7 +584,7 @@ end
 """
     model_step!(model)
 
-Steps the model one step forward. Calculates all agent interactions for the given step. Determines when an agent leaves due to age and adds new agent to replenish it.
+Steps the `model` one step forward. Calculates all agent interactions for the given step. Determines when an agent leaves due to age and adds new agent to replenish it.
 """
 function model_step!(model) # happens after every agent has acted
     model.step += 1
@@ -667,21 +667,21 @@ end
 """
     cell_colors(a)
 
-Get the color of the given agent a.
+Return the color of the given agent `a`.
 """
 cell_colors(a) = a.color
 
 """
     cell_sizes(a)
 
-Get the size of the given agent a.
+Return the size of the given agent `a`.
 """
 cell_sizes(a) = a.size
 
 """
     cell_markers(a)
 
-Get the marker of the given agent a.
+Return the marker of the given agent `a`.
 """
 function cell_markers(a::Union{Tec, Dendritic, Thymocyte})
     if a.type == :thymocyte
@@ -758,14 +758,14 @@ end
 """
     tec(a)
 
-Used to check if agent a is a Tec.
+Used to check if agent `a` is a Tec.
 """
 tec(a) = a.type == :tec
 
 """
     thymocyte(a)
 
-Used to check if agent a is a Thymocyte.
+Used to check if agent `a` is a Thymocyte.
 """
 thymocyte(a) = a.type == :thymocyte
 
@@ -775,42 +775,42 @@ global alabels = ["Alive Thymocytes", "Alive mTECs"]
 """
     react_ratio(model)
 
-Get the proportion of exited and dead thymocytes that were autoreactive.
+Return the proportion of exited and dead thymocytes that were autoreactive in the `model`.
 """
 react_ratio(model) = model.autoreactive_thymocytes/model.total_dead_thymocytes # proportion of total killed/exited thymocytes that were autoreactive
 
 """
     escape_ratio(model)
 
-Get the proportion of exited and dead thymocytes that escaped.
+Return the proportion of exited and dead thymocytes that escaped in the `model`.
 """
 escape_ratio(model) = model.escaped_thymocytes/model.total_dead_thymocytes  # proportion of total killed/exited thymocytes that escaped
 
 """
     escapedautoreactive_ratio(model)
 
-Get the proportion of autoreactive thymocytes that escaped.
+Return the proportion of autoreactive thymocytes that escaped in the `model`.
 """
 escapedautoreactive_ratio(model) = model.escaped_thymocytes/model.autoreactive_thymocytes # proportion of total autoreactive thymocytes that escaped
 
 """
     nonreact_ratio(model)
 
-Get the proportion of exited and dead thymocytes that were non-autoreactive.
+Return the proportion of exited and dead thymocytes that were non-autoreactive in the `model`.
 """
 nonreact_ratio(model) = model.nonautoreactive_thymocytes/model.total_dead_thymocytes  # proportion of total killed/exited thymocytes that were nonautoreactive
 
 """
     total_thy(model)
 
-Get the total number of dead, exited, and alive thymocytes by end of simulation.
+Return the total number of dead, exited, and alive thymocytes by end of simulation of the `model`.
 """
 total_thy(model) = model.total_thymocytes
 
 """
     alive_ratio(model)
 
-Get the proportion of alive thymocytes to exited and dead thymocytes.
+Return the proportion of alive thymocytes to exited and dead thymocytes in the `model`.
 """
 alive_ratio(model) = model.alive_thymocytes/model.total_dead_thymocytes
 
@@ -824,7 +824,7 @@ global dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 global agent_speed = 0.0015 * dims[1]
 #model2 = initialize(; width_height = dims, n_tecs = 500, n_dendritics = 50, n_thymocytes = 5000, speed = agent_speed, threshold = 1.6, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 3, min_strong_interactions = 1,
 #)
-#= parsed_args = parse_commandline()
+parsed_args = parse_commandline()
 model2 = initialize(; width_height = tuple(parsed_args["dim1"], parsed_args["dim2"], parsed_args["dim3"]), n_tecs = parsed_args["n_tecs"], n_dendritics = parsed_args["n_dendritics"], 
 n_thymocytes = parsed_args["n_thymocytes"], speed = agent_speed, threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = 0.6, 
 synapse_interactions = parsed_args["synapse_interactions"], min_strong_interactions = parsed_args["min_strong_interactions"])
@@ -832,8 +832,8 @@ synapse_interactions = parsed_args["synapse_interactions"], min_strong_interacti
 #global parange = Dict(:threshold => 0:0.01:1)
 
 @time adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
-CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/Dec15/atestapr11new.csv", adf) # first w/ 42 seed, second with 43
-CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/Dec15/mtestapr11new.csv", mdf) =#
+CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/adf.csv", adf)
+CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/mdf.csv", mdf)
 #= global ctr = 0
 for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
     global ctr += 1
