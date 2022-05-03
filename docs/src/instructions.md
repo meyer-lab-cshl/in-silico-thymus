@@ -3,7 +3,12 @@ Install Julia vX.X following instructions here: https://julialang.org/downloads/
 
 Additional useful information on getting started can be found here: https://docs.julialang.org/en/v1/manual/getting-started/
 
+Simply clone their project using e.g. git clone, cd to the project directory and call
+```
+(v1.0) pkg> activate .
 
+(SomeProject) pkg> instantiate
+```
 
 ## Example
 
