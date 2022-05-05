@@ -832,8 +832,11 @@ synapse_interactions = parsed_args["synapse_interactions"], min_strong_interacti
 #global parange = Dict(:threshold => 0:0.01:1)
 
 @time adf, mdf = run!(model2, cell_move!, model_step!, parsed_args["steps"]; adata = adata, mdata = mdata)
-CSV.write("./data/adf.csv", adf)
-CSV.write("./data/mdf.csv", mdf)
+adfname = "adf.csv"
+mdfname = "mdf.csv"
+CSV.write("./data/" * adfname, adf)
+CSV.write("./data/" * mdfname, mdf)
+println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
 #= global ctr = 0
 for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
     global ctr += 1
