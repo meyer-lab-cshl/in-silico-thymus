@@ -43,7 +43,7 @@ With Julia running, press ] to enter pkg mode and type:
 To run, navigate to ThymusABM project directory and type in the terminal: 
 
 ```
-julia --project=. src/ThymusABM.jl --steps 2000 --n_tecs 500 --n_dendritics 50 --n_thymocytes 5000 --selection_threshold 250 --dt 1.0 --rng 42 --synapse_interactions 3 --min_strong_interactions 1 --dim1 10.0 --dim2 10.0 --dim3 10.0
+julia --project=. src/ThymusABM.jl --steps 1000 --n_tecs 100 --n_dendritics 10 --n_thymocytes 1000 --selection_threshold 250 --dt 1.0 --rng 42 --synapse_interactions 3 --min_strong_interactions 1 --dim1 10.0 --dim2 10.0 --dim3 10.0
 ```
 
 The parameters that can be specified when running the ABM are listed below. If any parameter is not specified, the default value will be used.
