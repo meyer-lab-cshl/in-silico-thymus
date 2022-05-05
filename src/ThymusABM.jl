@@ -824,7 +824,7 @@ global dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 global agent_speed = 0.0015 * dims[1]
 #model2 = initialize(; width_height = dims, n_tecs = 500, n_dendritics = 50, n_thymocytes = 5000, speed = agent_speed, threshold = 1.6, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 3, min_strong_interactions = 1,
 #)
-#= parsed_args = parse_commandline()
+parsed_args = parse_commandline()
 model2 = initialize(; width_height = tuple(parsed_args["dim1"], parsed_args["dim2"], parsed_args["dim3"]), n_tecs = parsed_args["n_tecs"], n_dendritics = parsed_args["n_dendritics"], 
 n_thymocytes = parsed_args["n_thymocytes"], speed = agent_speed, threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = 0.6, 
 synapse_interactions = parsed_args["synapse_interactions"], min_strong_interactions = parsed_args["min_strong_interactions"])
@@ -833,7 +833,7 @@ synapse_interactions = parsed_args["synapse_interactions"], min_strong_interacti
 
 @time adf, mdf = run!(model2, cell_move!, model_step!, parsed_args["steps"]; adata = adata, mdata = mdata)
 CSV.write("./data/adf.csv", adf)
-CSV.write("./data/mdf.csv", mdf) =#
+CSV.write("./data/mdf.csv", mdf)
 #= global ctr = 0
 for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
     global ctr += 1
