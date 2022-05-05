@@ -357,7 +357,7 @@ function initialize(;
     #peptides = sample(rng, possible_antigens, replace=false)
     peptides = unique(vec(possible_antigens)) =#
 
-    stage_genes_peptides_dict = JSON.parsefile("../data/stage_genes_peptides.json")
+    stage_genes_peptides_dict = JSON.parsefile("./data/stage_genes_peptides.json")
 
     space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
 
@@ -375,9 +375,9 @@ function initialize(;
 
     #aa_data = npzread("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/H2_proportional_binding_matrices.npy")
     #aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
-    pepts = readlines(open("../data/uniquepeptides.txt"))
-    tcrs = readlines(open("../data/tcrs10000.txt"))
-    matches = open("../data/matches.dist")
+    pepts = readlines(open("./data/uniquepeptides.txt"))
+    tcrs = readlines(open("./data/tcrs10000.txt"))
+    matches = open("./data/matches.dist")
     matr = Mmap.mmap(matches, Matrix{Float32}, (size(pepts)[1], size(tcrs)[1]))
     aa_matrix = NamedArray(matr, (pepts, tcrs), ("pepts", "TCRs"))
     close(matches)
@@ -824,7 +824,7 @@ global dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 global agent_speed = 0.0015 * dims[1]
 #model2 = initialize(; width_height = dims, n_tecs = 500, n_dendritics = 50, n_thymocytes = 5000, speed = agent_speed, threshold = 1.6, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 3, min_strong_interactions = 1,
 #)
-parsed_args = parse_commandline()
+#= parsed_args = parse_commandline()
 model2 = initialize(; width_height = tuple(parsed_args["dim1"], parsed_args["dim2"], parsed_args["dim3"]), n_tecs = parsed_args["n_tecs"], n_dendritics = parsed_args["n_dendritics"], 
 n_thymocytes = parsed_args["n_thymocytes"], speed = agent_speed, threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = 0.6, 
 synapse_interactions = parsed_args["synapse_interactions"], min_strong_interactions = parsed_args["min_strong_interactions"])
@@ -832,8 +832,8 @@ synapse_interactions = parsed_args["synapse_interactions"], min_strong_interacti
 #global parange = Dict(:threshold => 0:0.01:1)
 
 @time adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
-CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/adf.csv", adf)
-CSV.write("/home/mulle/Documents/JuliaFiles/thymus_ABM/abm_results/mdf.csv", mdf)
+CSV.write("./data/adf.csv", adf)
+CSV.write("./data/mdf.csv", mdf) =#
 #= global ctr = 0
 for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
     global ctr += 1
