@@ -5,7 +5,6 @@ export Tec, Dendritic, Thymocyte, Parameters, add_tecs!, add_dendritics!, add_th
 #addprocs(2)
 #@everywhere begin
 using Base: Float64
-using Agents: length, isempty, getindex
 using Agents
 using Random
 using InteractiveDynamics
@@ -19,6 +18,7 @@ using CSV
 using ArgParse
 using LinearAlgebra
 using Mmap
+#using GLMakie
 
 ################## optimize checking of all peptides for escaped autoreactives #################
 # make Set of only genes/peptides actually present in simulation?
@@ -184,6 +184,8 @@ Base.@kwdef mutable struct Parameters
     max_tec_interactions::Int = max_tec_interactions                        # Int of maximum number of interactions a mTEC can have before it "dies" and is replaced by a new one
     max_thymocyte_interactions::Int = max_thymocyte_interactions            # Int of maximum number of interactions a thymocyte must have before it leaves as a nonautoreactive T cell
     step::Int = 0                                                           # Int of current step of simulation
+    mtec_genes::Int = mtec_genes
+    mtec_peptides::Int = mtec_peptides
 end
 
 """
@@ -212,9 +214,9 @@ function add_tecs!(model, n_tecs, color, size, replenishing)
         valid_genes_peptides = model.stage_genes_peptides_dict[stage]
         # how many genes for 1 mTEC? do we explicitly care about keeping gene names, or just combine their peptides into 1 array?
         # check rng
-        genes = rand(model.rng, valid_genes_peptides, 100)
+        genes = rand(model.rng, valid_genes_peptides, model.mtec_genes)
         peptides = vcat([gene[2] for gene in genes]...) # since gene is a gene -> peptides pair, gene[2] = peptides for that gene
-        #antis = sample(model.rng, model.peptides, num_interactions+100) # choose a size sample from peptides to act as tec's antigens
+        peptides = sample(model.rng, peptides, model.mtec_peptides) # choose a size sample from peptides to act as tec's antigens
         tec = Tec(id, pos, velocity, mass, :tec, color, size, num_interactions, peptides, stage, steps_alive)
         add_agent!(tec, model)
         set_color!(tec, model)
@@ -243,10 +245,10 @@ function add_dendritics!(model, n_dendritics, color, size)
         valid_genes_peptides = model.stage_genes_peptides_dict[stage]
         # how many genes for 1 mTEC? do we explicitly care about keeping gene names, or just combine their peptides into 1 array?
         # check rng
-        genes = rand(model.rng, valid_genes_peptides, 100)
+        genes = rand(model.rng, valid_genes_peptides, model.mtec_genes)
         peptides = vcat([gene[2] for gene in genes]...) # since gene is a gene -> peptides pair, gene[2] = peptides for that gene
-
-        #antis = sample(model.rng, model.peptides, 1, replace = false) # choose 1 antigen for DC to start with
+        peptides = sample(model.rng, peptides, model.mtec_peptides) # choose a size sample from peptides to act as tec's antigens
+        #peptides = sample(model.rng, model.peptides, 1, replace = false) # choose 1 antigen for DC to start with
         dc = Dendritic(id, pos, velocity, mass, :dendritic, color, size, num_interactions, peptides, steps_alive)
         add_agent!(dc, model)
         #set_color!(dc)
@@ -315,6 +317,7 @@ function calculate_reaction_strength(model, peptide,  tcr, reaction_levels)
     else # otherwise, add antigen as a new entry to the reaction_levels dict
         reaction_levels[peptide] = reaction
     end
+    return reaction
 end
 
 """
@@ -348,7 +351,9 @@ function initialize(;
     synapse_interactions = 1,
     min_strong_interactions = 1,
     max_tec_interactions = 200,
-    max_thymocyte_interactions = 80)
+    max_thymocyte_interactions = 80,
+    mtec_genes = 100,
+    mtec_peptides = 100)
 
     rng = MersenneTwister(rng_seed)
     step = 0
@@ -377,14 +382,14 @@ function initialize(;
     #aas = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
     pepts = readlines(open("./data/uniquepeptides.txt"))
     tcrs = readlines(open("./data/tcrs10000.txt"))
-    matches = open("./data/matches.dist")
+    matches = open("./data/matchesint.dist")
     matr = Mmap.mmap(matches, Matrix{Float32}, (size(pepts)[1], size(tcrs)[1]))
     aa_matrix = NamedArray(matr, (pepts, tcrs), ("pepts", "TCRs"))
     close(matches)
 
     properties = Parameters(width_height, speed, dt, n_tecs, n_thymocytes, n_dendritics, threshold, pepts, tcrs, successful_interactions, unsuccessful_interactions, escaped_thymocytes, autoreactive_thymocytes, nonautoreactive_thymocytes,
         total_thymocytes, treg_threshold, num_tregs, n_tecs, aa_matrix, synapse_interactions, min_strong_interactions, deaths, total_dead_thymocytes, alive_thymocytes, stage_genes_peptides_dict, max_tec_interactions,
-        max_thymocyte_interactions, step)
+        max_thymocyte_interactions, step, mtec_genes, mtec_peptides)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
 
@@ -499,9 +504,9 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
     total_strength = 0
     strong_reactions = 0
     for antigen in antigens
-        calculate_reaction_strength(model, antigen, thymocyte_agent.tcr, thymocyte_agent.reaction_levels)
+        reaction = calculate_reaction_strength(model, antigen, thymocyte_agent.tcr, thymocyte_agent.reaction_levels)
         #thymocyte_agent.reaction_levels[antigen] = min(thymocyte_agent.reaction_levels[antigen], 1.0) # clip reaction strength to max of 1.0
-        total_strength += thymocyte_agent.reaction_levels[antigen]
+        total_strength += reaction
 
         if thymocyte_agent.reaction_levels[antigen] >= model.threshold
             strong_reactions += 1
@@ -817,26 +822,26 @@ alive_ratio(model) = model.alive_thymocytes/model.total_dead_thymocytes
 
 global mdata = [:num_tregs, :autoreactive_thymocytes, :escaped_thymocytes, :nonautoreactive_thymocytes, :alive_thymocytes, escape_ratio, react_ratio, nonreact_ratio, :threshold, total_thy, alive_ratio, escapedautoreactive_ratio]
 global mlabels = ["number of tregs", "autoreactive", "escaped", "nonautoreactive", "alive", "escaped thymocytes ratio", "autoreactive thymocytes ratio", "nonautoreactive ratio", "selection threshold", "total thymocytes", "alive thymocytes ratio", "escaped to autoreactive ratio"]
-#mdata = [:autoreactive_thymocytes, :nonautoreactive_thymocytes, :escaped_thymocytes]
-#mlabels = ["Autoreactive Thymocytes", "Non-autoreactive Thymocytes", "Escaped Autoreactive Thymocytes"]
+
+#global mdata = [react_ratio, nonreact_ratio, escapedautoreactive_ratio]
+#global mlabels = ["autoreactive thymocytes ratio", "nonautoreactive ratio", "escaped to autoreactive ratio"]
 
 global dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 global agent_speed = 0.0015 * dims[1]
-#model2 = initialize(; width_height = dims, n_tecs = 500, n_dendritics = 50, n_thymocytes = 5000, speed = agent_speed, threshold = 1.6, dt = 1.0, rng_seed = 42, treg_threshold = 0.6, synapse_interactions = 3, min_strong_interactions = 1,
-#)
+
 parsed_args = parse_commandline()
 model2 = initialize(; width_height = tuple(parsed_args["dim1"], parsed_args["dim2"], parsed_args["dim3"]), n_tecs = parsed_args["n_tecs"], n_dendritics = parsed_args["n_dendritics"], 
 n_thymocytes = parsed_args["n_thymocytes"], speed = agent_speed, threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = 0.6, 
 synapse_interactions = parsed_args["synapse_interactions"], min_strong_interactions = parsed_args["min_strong_interactions"])
 
-#global parange = Dict(:threshold => 0:0.01:1)
+global parange = Dict(:threshold => 0:0.01:1)
 
-@time adf, mdf = run!(model2, cell_move!, model_step!, parsed_args["steps"]; adata = adata, mdata = mdata)
+#= @time adf, mdf = run!(model2, cell_move!, model_step!, parsed_args["steps"]; adata = adata, mdata = mdata)
 adfname = "adf.csv"
 mdfname = "mdf.csv"
 CSV.write("./data/" * adfname, adf)
 CSV.write("./data/" * mdfname, mdf)
-println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
+println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname) =#
 #= global ctr = 0
 for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
     global ctr += 1
@@ -861,10 +866,10 @@ for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/te
         end;
     end
 end =#
-#= figure, adf, mdf = abm_data_exploration(
-    model2, cell_move!, model_step!, parange;
+#= figure, p = abmexploration(
+    model2; agent_step! = cell_move!, model_step! = model_step!, parange,
     as = cell_sizes, ac = cell_colors, #adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels)  =#
+    mdata = mdata, mlabels = mlabels) =# 
 
 #= abm_video(
     "thymus_abm_3Dvid_newtest.mp4",
