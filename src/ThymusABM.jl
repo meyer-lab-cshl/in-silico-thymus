@@ -4,6 +4,8 @@ export Tec, Dendritic, Thymocyte, Parameters, add_tecs!, add_dendritics!, add_th
 #using Distributed
 #addprocs(2)
 #@everywhere begin
+include("FastPeptide.jl")
+using .FastPeptide
 using Base: Float64
 using Agents
 using Random
@@ -18,7 +20,6 @@ using CSV
 using ArgParse
 using LinearAlgebra
 using Mmap
-#using GLMakie
 
 ################## optimize checking of all peptides for escaped autoreactives #################
 # make Set of only genes/peptides actually present in simulation?
@@ -200,9 +201,6 @@ function add_tecs!(model, n_tecs, color, size, replenishing)
         velocity = (0.0, 0.0, 0.0)
         mass = Inf
         steps_alive = 0
-        #if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs don't overlap
-        #    pos = Tuple(rand(model.rng, 3))
-        #end
         if replenishing == false
             num_interactions = rand(model.rng, 0:model.max_tec_interactions - 1)
             stage = rand(model.rng, 1:length(model.stage_genes_peptides_dict))
@@ -233,9 +231,6 @@ function add_dendritics!(model, n_dendritics, color, size)
     for _ in 1:n_dendritics
         id = nextid(model)
         pos = Tuple(rand(model.rng, 3))
-        #if !isempty(nearby_ids(pos, model, model.width_height[1]/2)) # make sure mTECs/dendritics don't overlap
-        #    pos = Tuple(rand(model.rng, 3))
-        #end
         velocity = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
         steps_alive = 0
@@ -260,7 +255,7 @@ end
 
 Adds `n_thymocytes` number of Thymocytes to the `model` of given `color` and `size`. Boolean `initial` determines if Thymocyte is an initial Thymocyte (true), or added to the model later on (false).
 """
-function add_thymocytes!(model, n_thymocytes, color, size, initial)
+function add_thymocytes!(model, n_thymocytes, color, sizes, initial)
     for _ in 1:n_thymocytes
         id = nextid(model)
         model.total_thymocytes += 1
@@ -269,11 +264,16 @@ function add_thymocytes!(model, n_thymocytes, color, size, initial)
         vel = ((sincos(2π * rand(model.rng)) .* model.speed)...,sin(2π * rand(model.rng)) .* model.speed)
         mass = 1.0
         #tcr = randstring(model.rng, "ACDEFGHIKLMNPQRSTVWY", 9)
+        #strengths = Array{Cint,1}(undef, size(model.peptides))
+        #calc_binding_strengths(strengths, model.peptides, [tcr])
+        #ccall((:calc_binding_strengths, "./data/myfplib.so"), Cvoid, (Ptr{Cint}, Ptr{UInt8}, Ptr{UInt8}), strengths, "./data/uniquepeptides.txt", tcr)
+        #binding_strengths = NamedArray(strengths, (model.peptides), ("pepts"))
         tcr = rand(model.rng, model.tcrs)
+        deleteat!(model.tcrs, findall(x->x==tcr,model.tcrs))
         steps_alive = 0
+        reaction_levels = Dict{String, Cint}()
         if initial == true
             num_interactions = rand(model.rng, 0:model.max_thymocyte_interactions - 1) #if want to randomize this, also have to randomize initial reaction levels
-            reaction_levels = Dict{String, Float32}()
             if num_interactions != 0
                 for i in 1:num_interactions
                     pept = rand(model.rng, model.peptides)
@@ -282,43 +282,41 @@ function add_thymocytes!(model, n_thymocytes, color, size, initial)
             end
         else
             num_interactions = 0
-            reaction_levels = Dict{String, Float32}()
         end
 
         death_label = false
         confined = false
         bind_location = (0.0,0.0,0.0)
         treg = false
-        thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, size, num_interactions, tcr, reaction_levels, death_label, confined, bind_location, treg, steps_alive)
+        thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, sizes, num_interactions, tcr, reaction_levels, death_label, confined, bind_location, treg, steps_alive)
         add_agent!(thymocyte, model)
         #set_color!(thymocyte)
     end
 end
 
 """
-    calculate_reaction_strength(model, peptide, tcr, reaction_levels)
+    calculate_reaction_strength(peptide, binding_strengths, reaction_levels)
 
-Calculate the strength of the interaction between given `peptide` and `tcr` for the `model`. Store the calculated strength in the Thymocyte's `reaction_levels` dictionary.
+Calculate the strength of the interaction between given `peptide` and thymocyte's TCR according to its `binding_strengths`. Store the calculated strength in the Thymocyte's `reaction_levels` dictionary.
 """
 function calculate_reaction_strength(model, peptide,  tcr, reaction_levels)
-#=     reaction = 1.0
-    for i in range(1, length(peptide), step=1)
-        antigen_aa = peptide[i]
-        tcr_aa = tcr[i]
-        reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
+    #=     reaction = 1.0
+        for i in range(1, length(peptide), step=1)
+            antigen_aa = peptide[i]
+            tcr_aa = tcr[i]
+            reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
+        end
+        reaction = reaction^(1/length(peptide)) =#
+        reaction = model.aa_matrix[peptide, tcr]
+        if reaction > 100
+            reaction = 100
+        end
+        if get(reaction_levels, peptide, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
+            reaction_levels[peptide] += reaction
+        else # otherwise, add antigen as a new entry to the reaction_levels dict
+            reaction_levels[peptide] = reaction
+        end
     end
-    reaction = reaction^(1/length(peptide)) =#
-    reaction = model.aa_matrix[peptide, tcr]
-    if reaction > 100
-        reaction = 100
-    end
-    if get(reaction_levels, peptide, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
-        reaction_levels[peptide] += reaction
-    else # otherwise, add antigen as a new entry to the reaction_levels dict
-        reaction_levels[peptide] = reaction
-    end
-    return reaction
-end
 
 """
     initialize(;
@@ -358,10 +356,6 @@ function initialize(;
     rng = MersenneTwister(rng_seed)
     step = 0
 
-#=     possible_antigens = readdlm("/home/mulle/Documents/JuliaFiles/thymus_ABM/data/validpeptides.txt",'\n')
-    #peptides = sample(rng, possible_antigens, replace=false)
-    peptides = unique(vec(possible_antigens)) =#
-
     stage_genes_peptides_dict = JSON.parsefile("./data/stage_genes_peptides.json")
 
     space3d = ContinuousSpace(width_height, 1.0) # change number here depending on volume dimensions used
@@ -383,7 +377,7 @@ function initialize(;
     pepts = readlines(open("./data/uniquepeptides.txt"))
     tcrs = readlines(open("./data/tcrs10000.txt"))
     matches = open("./data/matchesint.dist")
-    matr = Mmap.mmap(matches, Matrix{Float32}, (size(pepts)[1], size(tcrs)[1]))
+    matr = Mmap.mmap(matches, Matrix{Cint}, (size(pepts)[1], size(tcrs)[1]))
     aa_matrix = NamedArray(matr, (pepts, tcrs), ("pepts", "TCRs"))
     close(matches)
 
@@ -392,7 +386,6 @@ function initialize(;
         max_thymocyte_interactions, step, mtec_genes, mtec_peptides)
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
-
     # Add agents to the model
     add_tecs!(model, n_tecs, "#00ffff", 0.5, false)
     add_dendritics!(model, n_dendritics, "#ffa500", 0.5)
@@ -495,19 +488,17 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
     else
         return
     end
-
     # compare a chosen tec antigen sequence to thymocyte TCR sequence
     # choose random antigen from tec's antigens to compare thymocyte tcr to. use aa_matrix to retrieve stength of interaction, comparing characters one by one
     # if a reaction level passes the model threshold, the thymocyte is killed
     antigens = rand(model.rng, tec_agent.antigens, model.synapse_interactions)
-    
+
     total_strength = 0
     strong_reactions = 0
     for antigen in antigens
-        reaction = calculate_reaction_strength(model, antigen, thymocyte_agent.tcr, thymocyte_agent.reaction_levels)
+        calculate_reaction_strength(model, antigen, thymocyte_agent.tcr, thymocyte_agent.reaction_levels)
         #thymocyte_agent.reaction_levels[antigen] = min(thymocyte_agent.reaction_levels[antigen], 1.0) # clip reaction strength to max of 1.0
-        total_strength += reaction
-
+        total_strength += thymocyte_agent.reaction_levels[antigen]
         if thymocyte_agent.reaction_levels[antigen] >= model.threshold
             strong_reactions += 1
         else
@@ -516,7 +507,6 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
             end
             model.unsuccessful_interactions += 1
         end
-
         if strong_reactions >= model.min_strong_interactions || total_strength >= model.threshold # kill thymocyte if sequence matches are above model threshold - (> or >=?) or if total strength from multiple interacts is above thresh
             #kill_agent!(thymocyte_agent, model)
             if rand(model.rng) > 0.3
@@ -536,7 +526,6 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
     thymocyte_agent.num_interactions += 1
     tec_agent.num_interactions += 1 
     update_tec_stage(tec_agent, model)
-
     set_color!(a1, model)
     set_color!(a2, model)
 end
@@ -605,7 +594,6 @@ function model_step!(model) # happens after every agent has acted
         #elastic_collision!(a1, a2, :mass)
         collide!(a1, a2)
     end
-
     for agent in allagents(model)
         agent.steps_alive += 1
         escaped = false
@@ -636,7 +624,6 @@ function model_step!(model) # happens after every agent has acted
                     if reaction >= model.threshold
                         strong_reactions += 1
                     end
-
                     if strong_reactions >= model.min_strong_interactions
                         model.autoreactive_thymocytes += 1
                         model.escaped_thymocytes += 1
@@ -644,11 +631,9 @@ function model_step!(model) # happens after every agent has acted
                         break
                     end
                 end
-
                 if agent.treg == true
                     model.num_tregs += 1
                 end
-
                 if escaped == false
                     model.nonautoreactive_thymocytes += 1
                 end
@@ -656,16 +641,13 @@ function model_step!(model) # happens after every agent has acted
             kill_agent!(agent, model)
         end
     end
-
     if model.tecs_present < model.n_tecs # generate new tecs if some died
         tecs_missing = model.n_tecs - model.tecs_present
         add_tecs!(model, tecs_missing, "#00c8ff", 0.5, true)
         model.tecs_present += tecs_missing
     end
-
     add_thymocytes!(model, model.deaths, "#edf8e9", 0.2, false) # replenish thymocytes
     model.deaths = 0
-
     model.alive_thymocytes = count(i->(i.type == :thymocyte), allagents(model))
 end
 
@@ -823,25 +805,23 @@ alive_ratio(model) = model.alive_thymocytes/model.total_dead_thymocytes
 global mdata = [:num_tregs, :autoreactive_thymocytes, :escaped_thymocytes, :nonautoreactive_thymocytes, :alive_thymocytes, escape_ratio, react_ratio, nonreact_ratio, :threshold, total_thy, alive_ratio, escapedautoreactive_ratio]
 global mlabels = ["number of tregs", "autoreactive", "escaped", "nonautoreactive", "alive", "escaped thymocytes ratio", "autoreactive thymocytes ratio", "nonautoreactive ratio", "selection threshold", "total thymocytes", "alive thymocytes ratio", "escaped to autoreactive ratio"]
 
-#global mdata = [react_ratio, nonreact_ratio, escapedautoreactive_ratio]
-#global mlabels = ["autoreactive thymocytes ratio", "nonautoreactive ratio", "escaped to autoreactive ratio"]
 
 global dims = (10.0, 10.0, 10.0) # seems to work best for 3D
 global agent_speed = 0.0015 * dims[1]
 
-#= parsed_args = parse_commandline()
+parsed_args = parse_commandline()
 model2 = initialize(; width_height = tuple(parsed_args["dim1"], parsed_args["dim2"], parsed_args["dim3"]), n_tecs = parsed_args["n_tecs"], n_dendritics = parsed_args["n_dendritics"], 
 n_thymocytes = parsed_args["n_thymocytes"], speed = agent_speed, threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = 0.6, 
 synapse_interactions = parsed_args["synapse_interactions"], min_strong_interactions = parsed_args["min_strong_interactions"])
 
-global parange = Dict(:threshold => 0:0.01:1) =#
+#global parange = Dict(:threshold => 0:0.01:1)
 
-#= @time adf, mdf = run!(model2, cell_move!, model_step!, parsed_args["steps"]; adata = adata, mdata = mdata)
+@time adf, mdf = run!(model2, cell_move!, model_step!, parsed_args["steps"]; adata = adata, mdata = mdata)
 adfname = "adf.csv"
 mdfname = "mdf.csv"
 CSV.write("./data/" * adfname, adf)
 CSV.write("./data/" * mdfname, mdf)
-println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname) =#
+println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
 #= global ctr = 0
 for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
     global ctr += 1
@@ -866,10 +846,10 @@ for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/te
         end;
     end
 end =#
-#= figure, p = abmexploration(
-    model2; agent_step! = cell_move!, model_step! = model_step!, parange,
+#= figure, adf, mdf = abm_data_exploration(
+    model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, #adata = adata, alabels = alabels,
-    mdata = mdata, mlabels = mlabels) =# 
+    mdata = mdata, mlabels = mlabels)  =#
 
 #= abm_video(
     "thymus_abm_3Dvid_newtest.mp4",
