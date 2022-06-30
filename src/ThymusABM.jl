@@ -765,7 +765,8 @@ function run()
     #model2 = initialize(; width_height = tuple(parsed_args["dim1"], parsed_args["dim2"], parsed_args["dim3"]), n_tecs = parsed_args["n_tecs"], n_dendritics = parsed_args["n_dendritics"], 
     #n_thymocytes = parsed_args["n_thymocytes"], speed = parsed_args["thymocyte_speed"], threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = parsed_args["treg_threshold"], 
     #synapse_interactions = parsed_args["synapse_interactions"])
-    rng, speed, dt, selection_threshold, treg_threshold, synapse_interactions, volumes, steps = read_parameters("./data/test.toml")
+
+    rng, speed, dt, selection_threshold, treg_threshold, synapse_interactions, volumes, steps = read_parameters("./data/config.toml")
 
     GM = 0.00016
     GSD = 9.97
