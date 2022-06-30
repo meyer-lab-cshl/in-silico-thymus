@@ -1,0 +1,11 @@
+steps = 1000
+volumes = [0.000001, 0.00001, 0.0001, 0.001]
+n_tecs = 100
+n_dendritics = 10
+n_thymocytes = 1000
+selection_threshold = 300
+treg_threshold = 200
+dt = 1.0
+thymocyte_speed = 0.0015
+rng = 1
+synapse_interactions = 1
