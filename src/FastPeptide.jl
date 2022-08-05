@@ -1,7 +1,7 @@
 module FastPeptide
 using Random
 
-export calc_binding_strengths
+export calc_binding_strengths, stringhamming, fasthamming, str2matr
 
 function str2peptide(str::String, len::Int)
     pep = 0
@@ -32,7 +32,6 @@ function whamming(p1::Int, p2::Int, peplen::Int)
     return Int16(trunc(dist))
 end
 
-#function simple_pairwise(bindingarray::Array{Cint,1}, peps::Array{Int}, peplen::Int, npeps::Int, tcrs::Array{String}, ntcrs::Int)
 function calc_binding_strengths(peps::Array{String}, tcrs::Array{String})
     #bindingarray = Dict{String, Int16}()
     d = 0
@@ -59,6 +58,91 @@ function calc_binding_strengths(peps::String, tcrs::String)
     return d
     #return bindingarray
 end
+
+function str2matr(st)
+    s = split(st,"")
+    s = Array{String}(s)
+    s = reshape(s, 1, length(s))
+end
+
+function hamming(A::BitArray, B::BitArray)
+    #size(A) == size(B) || throw(DimensionMismatch("sizes of A and B must match"))
+    Ac,Bc = A.chunks, B.chunks
+    W = 0
+    for i = 1:(length(Ac)-1)
+        W += count_ones(Ac[i] ⊻ Bc[i])
+    end
+    W += count_ones(Ac[end] ⊻ Bc[end] & Base._msk_end(A))
+    return W
+end
+
+function stringhamming(A::String, B::String)
+    counts = 0
+    for i in eachindex(A)
+        if A[i] == B[i]
+        counts += 1
+        end
+    end
+    return counts
+end
+
+function fasthamming(peps::Matrix{Int}, tcr, threshold::Int, reaction_dict::Dict{Array{Int}, Int}, min_strength::Int, finalcheck::Bool)
+    res = peps .- tcr
+    if size(res)[1] > 1
+        matches = sum(x -> x == 0, res, dims=2)
+        # Add all of matches for each peptide to thymocyte memory dict
+        # reaction_dict[peps[i]] = matches[i]]
+        if finalcheck == false
+            death_label = false
+            for i in 1:size(peps)[1]
+                if get(reaction_dict, Matrix(peps[i,:]'), 0) != 0 && matches[i] >= min_strength # if thymocyte has seen antigen before, add to its current reaction level
+                    reaction_dict[Matrix(peps[i,:]')] += matches[i]
+                elseif matches[i] >= min_strength # otherwise, add antigen as a new entry to the reaction_dict dict
+                    reaction_dict[Matrix(peps[i,:]')] = matches[i]
+                else
+                    continue
+                end
+                if reaction_dict[Matrix(peps[i,:]')] >= threshold
+                    death_label = true
+                end
+            end
+            return death_label
+        else
+            if any(match >= threshold for match in matches) # can count successful/unsuccessful interactions here maybe
+                return true
+            else
+                return false
+            end
+        end
+
+    else
+        match = sum(x -> x == 0, res)
+        if finalcheck == false
+            death_label = false
+            if get(reaction_dict, peps, 0) != 0 && match >= min_strength # if thymocyte has seen antigen before, add to its current reaction level
+                reaction_dict[peps] += match
+            elseif match >= min_strength # otherwise, add antigen as a new entry to the reaction_dict dict
+                reaction_dict[peps] = match
+            else
+                return false
+            end
+
+            if reaction_dict[peps] >= threshold
+                death_label = true
+            end
+
+            return death_label
+        else
+            if match >= threshold
+                return true
+            else
+                return false
+            end
+        end
+    end
+end
+
+
 
 global const AABITS = 5
 global const AAMASK = 31
