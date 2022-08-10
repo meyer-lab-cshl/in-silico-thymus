@@ -562,8 +562,6 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
     peptindex = rand(model.rng, axes(tec_agent.antigens, 1), model.synapse_interactions)
     antigens = tec_agent.antigens[peptindex, :]
 
-    total_strength = 0
-    strong_reactions = 0
     finalcheck = false
     thymocyte_agent.death_label = fasthamming(antigens, thymocyte_agent.tcr, model.threshold, thymocyte_agent.reaction_levels, model.min_strength, finalcheck)
     # change stages here?
@@ -865,8 +863,8 @@ function run()
         adf, mdf = run!(models[i], cell_move!, model_step!, steps; adata = adata, mdata = mdata)
         adfname = "adf" * string(selection_threshold) * "threshold" * string(rng) * "rngseed.csv"
         mdfname = "mdf" * string(selection_threshold) * "threshold" * string(rng) * "rngseed.csv"
-        CSV.write("./data/escapedthreshold/003volume10synapse2min" * adfname, adf)
-        CSV.write("./data/escapedthreshold/003volume10synapse2min" * mdfname, mdf)
+        CSV.write("./data/escapedthreshold/001volume10synapse2min" * adfname, adf)
+        CSV.write("./data/escapedthreshold/001volume10synapse2min" * mdfname, mdf)
         println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
         #writedlm( "./data/newhamtestpeptidecountdata.csv",  models[i].encountered_peptides_count, ',')
         #writedlm( "./data/synapse/synapse2/25synapsegenes003volume.csv",  models[i].expressed_genes, ',')
