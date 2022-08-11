@@ -323,48 +323,6 @@ function add_thymocytes!(model, n_thymocytes::Int, color::String, sizes::Float64
 end
 
 """
-    calculate_reaction_strength(peptide, tcr, reaction_levels)
-
-Calculate the strength of the interaction between given `peptide` and thymocyte's TCR according to its `tcr`. Store the calculated strength in the Thymocyte's `reaction_levels` dictionary.
-"""
-function calculate_reaction_strength(peptide::String, tcr::String, reaction_levels::Dict{String, Int16}, matrix_type::String, finalcheck::Bool, model)
-    #=     reaction = 1.0
-        for i in range(1, length(peptide), step=1)
-            antigen_aa = peptide[i]
-            tcr_aa = tcr[i]
-            reaction *= model.aa_matrix[i, tcr_aa, antigen_aa]
-        end
-        reaction = reaction^(1/length(peptide)) =#
-        #reaction = model.aa_matrix[peptide, tcr]
-#=         if matrix_type == "hamming"
-            reaction = stringhamming(peptide, tcr)
-            if reaction <= 2
-                reaction = 0
-            end
-            if get(reaction_levels, peptide, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
-                reaction_levels[peptide] += reaction
-            else # otherwise, add antigen as a new entry to the reaction_levels dict
-                reaction_levels[peptide] = reaction
-            end
-            return reaction
-        else
-            reaction = calc_binding_strengths(peptide, tcr)
-            if reaction > 100
-                reaction = 100
-            elseif reaction < 20
-                reaction = 0
-            end
-            if get(reaction_levels, peptide, 0) != 0 # if thymocyte has seen antigen before, add to its current reaction level
-                reaction_levels[peptide] += reaction
-            else # otherwise, add antigen as a new entry to the reaction_levels dict
-                reaction_levels[peptide] = reaction
-            end
-            return reaction
-        end =#
-        selection_success = fasthamming(peptide, tcr, model.threshold, reaction_levels, model.min_strength, finalcheck)
-    end
-
-"""
     initialize(;
         width_height = (1.0, 1.0, 1.0),
         speed = 0.002,
@@ -564,7 +522,6 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
 
     finalcheck = false
     thymocyte_agent.death_label = fasthamming(antigens, thymocyte_agent.tcr, model.threshold, thymocyte_agent.reaction_levels, model.min_strength, finalcheck)
-    # change stages here?
     thymocyte_agent.num_interactions += 1
     tec_agent.num_interactions += 1 
     update_tec_stage(tec_agent, model)
@@ -634,7 +591,7 @@ function model_step!(model) # happens after every agent has acted
     end
 
     interaction_radius = 0.06*model.width_height[1]
-    for (a1, a2) in interacting_pairs(model, interaction_radius, :types) # check :all versus :nearest versus :types.
+    for (a1, a2) in interacting_pairs(model, interaction_radius, :types)
         #:types allows for easy changing of tec size by changing radius, but then thymocytes do not interact at all. :all causes error if thymocyte is deleted while having > 1 interaction. :nearest only allows for 1 interaction 
         if (a1.type == :tec || a1.type == :dendritic) && (a2.type == :tec || a2.type == :dendritic)
             tec_DC_interact!(a1, a2)
@@ -653,7 +610,6 @@ function model_step!(model) # happens after every agent has acted
                 push!(model.encountered_peptides_count, (length(agent.reaction_levels), agent.death_label))
                 model.deaths += 1
                 model.total_dead_thymocytes += 1
-                strong_reactions = 0
                 escaped = fasthamming(model.peptides, agent.tcr, model.threshold, agent.reaction_levels, model.min_strength, true)
 
                 if agent.treg == true
@@ -793,8 +749,9 @@ function read_parameters(filename::String)
     volume = params["volume"]#rand(MersenneTwister(rng), dist, num_ensembles)
     steps = params["steps"]
     num_medullas = params["num_medullas"]
+    min_strength = params["minimum_strength"]
     matrixtype = params["matrixtype"]
-    return rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, matrixtype
+    return rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, min_strength, matrixtype
 end
 
 check_stage_1(agent) = agent.stage == 1
@@ -813,7 +770,6 @@ check_stage_9(agent) = agent.stage == 9
 Run the model.
 """
 function run()
-    #adata = [(agent_peptides_encountered, mean, thymocyte)]# (thymocyte, count), (tec, count)]
     adata = [(tec, count), (check_stage_1, count, tec), (check_stage_2, count, tec), (check_stage_3, count, tec), (check_stage_4, count, tec), (check_stage_5, count, tec), (check_stage_6, count, tec), (check_stage_7, count, tec), (check_stage_8, count, tec), (check_stage_9, count, tec),]
     mdata = [:num_tregs, :autoreactive_thymocytes, :escaped_thymocytes, :nonautoreactive_thymocytes, :alive_thymocytes, escape_ratio, react_ratio, nonreact_ratio, :threshold, total_thy, alive_ratio, escapedautoreactive_ratio, model_volume]
     mlabels = ["number of tregs", "autoreactive", "escaped", "nonautoreactive", "alive", "escaped thymocytes ratio", "autoreactive thymocytes ratio", "nonautoreactive ratio", "selection threshold", "total thymocytes", "alive thymocytes ratio", "escaped to autoreactive ratio", "volume"]
@@ -822,7 +778,7 @@ function run()
     #n_thymocytes = parsed_args["n_thymocytes"], speed = parsed_args["thymocyte_speed"], threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = parsed_args["treg_threshold"], 
     #synapse_interactions = parsed_args["synapse_interactions"])
 
-    rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, matrixtype = read_parameters("./data/config.toml")
+    rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, min_strength, matrixtype = read_parameters("./data/config.toml")
 
     if volume == "RANDOM"
         GM = 0.00016
@@ -857,64 +813,23 @@ function run()
             dcs[i] = 1
         end
     end
-    models = [initialize(; width_height = dimensions[i], n_tecs = tecs[i], n_dendritics = dcs[i], n_thymocytes = thymocytes[i], speed = speed, threshold = selection_threshold, dt = 1.0, rng_seed = rng, treg_threshold = treg_threshold, synapse_interactions = synapse_interactions, matrix_type = matrixtype) for i in 1:num_medullas];
+    models = [initialize(; width_height = dimensions[i], n_tecs = tecs[i], n_dendritics = dcs[i], n_thymocytes = thymocytes[i], speed = speed, 
+    threshold = selection_threshold, dt = 1.0, rng_seed = rng[i], treg_threshold = treg_threshold, synapse_interactions = synapse_interactions, 
+    min_strength = min_strength, matrix_type = matrixtype) for i in 1:num_medullas];
     #adf, mdf = ensemblerun!(models, cell_move!, model_step!, 1000; adata = adata, mdata = mdata, parallel = true)
-#=     @time Threads.@threads for i = 1:num_medullas
+    @time Threads.@threads for i = 1:num_medullas
         adf, mdf = run!(models[i], cell_move!, model_step!, steps; adata = adata, mdata = mdata)
-        adfname = "adf" * string(selection_threshold) * "threshold" * string(rng) * "rngseed.csv"
-        mdfname = "mdf" * string(selection_threshold) * "threshold" * string(rng) * "rngseed.csv"
-        CSV.write("./data/escapedthreshold/001volume10synapse2min" * adfname, adf)
-        CSV.write("./data/escapedthreshold/001volume10synapse2min" * mdfname, mdf)
+        adfname = "adf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
+        mdfname = "mdf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
+        CSV.write("./data/results/" * adfname, adf)
+        CSV.write("./data/results/" * mdfname, mdf)
         println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
         #writedlm( "./data/newhamtestpeptidecountdata.csv",  models[i].encountered_peptides_count, ',')
         #writedlm( "./data/synapse/synapse2/25synapsegenes003volume.csv",  models[i].expressed_genes, ',')
-    end =#
-#=     abmvideo(
-    "thymus_abm_3D_test.mp4",
-    models[1],
-    cell_move!,
-    model_step!;
-    frames = 1000,
-    ac = cell_colors,
-    as = cell_sizes,
-    spf = 1,
-    framerate = 100,) =#
-    #global parange = Dict(:threshold => 0:0.01:1)
-
-    #@time adf, mdf = run!(model2, cell_move!, model_step!, parsed_args["steps"]; adata = adata, mdata = mdata)
-#=     adfname = "adf.csv"
-    mdfname = "mdf.csv"
-    CSV.write("./data/" * adfname, adf)
-    CSV.write("./data/" * mdfname, mdf)
-    println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname) =#
-end
-
-#run()
-#end
-#= global ctr = 0
-for line in readlines("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/test.txt")
-    global ctr += 1
-    if ctr >= 495
-        println(ctr)
-        data = split(line)
-        thy = trunc(Int,parse(Float64,data[1]))
-        mtec = trunc(Int,parse(Float64,data[2]))
-        dc = trunc(Int,parse(Float64,data[3]))
-        interacts = trunc(Int,parse(Float64,data[4]))
-        thresh = parse(Float64,data[5])
-        model = initialize(; width_height = (10.0,10.0,10.0), n_tecs = mtec, n_dendritics = dc, 
-        n_thymocytes = thy, speed = agent_speed, threshold = thresh, dt = 1.0, rng_seed = 1, treg_threshold = 0.6, 
-        synapse_interactions = interacts)
-        adf, mdf = run!(model, cell_move!, model_step!, 1000; adata = adata, mdata = mdata)
-
-        open("/home/mulle/Documents/JuliaFiles/thymus_ABM/surrogates/newmyfile2.txt", "a") do io
-            num1 = mdf[!, "react_ratio"][end]
-            num2 = mdf[!, "nonreact_ratio"][end]
-            num3 = mdf[!, "escapedautoreactive_ratio"][end]
-            write(io, string(num1) * " " * string(num2) * " " * string(num3) * "\n")
-        end;
     end
-end =#
+
+
+    #global parange = Dict(:threshold => 0:0.01:1)
 #= figure, adf, mdf = abm_data_exploration(
     model2, cell_move!, model_step!, parange;
     as = cell_sizes, ac = cell_colors, #adata = adata, alabels = alabels,
@@ -931,47 +846,8 @@ end =#
     spf = 1,
     framerate = 100,
 ) =#
+end
+run()
 
-#@benchmark run!(model2, cell_move!, model_step!, 1000; adata = adata)
-#adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
-#= adf, mdf = run!(model2, cell_move!, model_step!, 1000; adata = adata, mdata=mdata)
-x = mdf.step
-thy_data = mdf.nonautoreactive_thymocytes
-figure = Figure(resolution = (600, 400))
-ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Proportion")
-ax.title = "Proportion of Autoreactive to Nonautoreactive Thymocytes"
-lthy = lines!(ax, x, thy_data, color = :blue)
-#figure[1, 2] = Legend(figure, [lthy], ["Proportion"], textsize = 12)
-display(figure) =#
 
-#= x = mdf.step
-success = mdf.successful_interactions
-unsuccess = mdf.unsuccessful_interactions
-figure = Figure(resolution = (600, 400))
-ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "Number of Interactions")
-ax.title = "Quantity of Thymocyte/APC Interactions"
-lsuccess= lines!(ax, x, success, color = :blue)
-lunsuccess = lines!(ax, x, unsuccess, color = :red)
-figure[1, 2] = Legend(figure, [lsuccess, lunsuccess], ["Successful", "Unsuccessful"], textsize = 12)
-display(figure) =#
-
-# Runs model ensemble (in this case w/ different RNG seeds for each) and plots average thymocyte count over across all models over time
-#= num_ensembles = 5
-models = [initialize(; width_height = dims, n_tecs = 10, n_dendritics = 10, n_thymocytes = 1000, speed = agent_speed, threshold = 0.75, dt = 1.0, rng_seed = x, treg_threshold = 0.6) for x in rand(UInt8, num_ensembles)];
-adf, mdf = ensemblerun!(models, cell_move!, model_step!, 1000; adata = adata, mdata = mdata, parallel = true)
-
-# Make each ensemble adf data an individual element in a vector
-dfs = [mdf[in([i]).(mdf.ensemble), :] for i in range(1,num_ensembles; step=1)]
-
-# Takes mean of the ensemble-seperated vector for all data in it
-dfs_mean = reduce(.+, dfs) ./ length(dfs)
-
-# Plot relevant data
-x = dfs_mean.step
-thy_data = dfs_mean.react_ratio
-figure = Figure(resolution = (600, 400))
-ax = figure[1, 1] = Axis(figure, xlabel = "Steps", ylabel = "React Ratio")
-lthy = lines!(ax, x, thy_data, color = :blue)
-figure[1, 2] = Legend(figure, [lthy], ["React Ratio"], textsize = 12)
-display(figure) =#
 end
