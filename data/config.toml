@@ -1,10 +1,10 @@
 steps = 1000 # Amount of steps to run model for
-volume = 0.001 # Volume of each medulla
-num_medullas = 2 # Number of medullas to simulate
+volume = 0.003 # Volume of each medulla
+num_medullas = 5 # Number of medullas to simulate
 selection_threshold = 7 # Negative selection threshold
 treg_threshold = 6 # Threshold to determine if thymocyte exits as regulatory T cell
 thymocyte_speed = 0.0015 # Speed of thymocytes
-rng = [1, 2] # Random seed
+rng = [1, 2, 3, 4, 5] # Random seed
 synapse_interactions = 10 # Amount of different pMHC:TCR reactivities to measure for one thymocyte-APC collision
 minimum_strength = 2 # THe minimum strength of a pMHC:TCR binding required to have a thymocyte "remember" the binding.
 matrixtype = "hamming" # Type of binding matrix to use

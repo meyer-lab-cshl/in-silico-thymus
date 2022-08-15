@@ -335,7 +335,11 @@ end
         rng_seed = 1,
         synapse_interactions = 1,
         max_tec_interactions = 200,
-        max_thymocyte_interactions = 80)
+        max_thymocyte_interactions = 80,
+        mtec_genes = 100,
+        mtec_peptides = 100,
+        min_strength = 2,
+        matrix_type = "hamming")
 
 Initialize the model with default or specified parameters. Returns the initialized `model`.
 """
@@ -562,6 +566,7 @@ function collide!(a::AbstractAgent, b::AbstractAgent)
     v1, v2, x1, x2 = a.vel, b.vel, a.pos, b.pos
     r1 = x1 .- x2
     r2 = x2 .- x1
+    dv = a.vel .- b.vel
     m1, m2 = a.mass, b.mass
     m1 == m2 == Inf && return false
     if m1 == Inf
@@ -570,6 +575,7 @@ function collide!(a::AbstractAgent, b::AbstractAgent)
         dot(r2, v1) ≤ 0 && return false
     else
         !(dot(r2, v1) > 0 && dot(r2, v1) > 0) && return false
+        #dot(dv, r2) ≤ 0 && return false # check if this is correct
     end
 
     # Calculate results of elastic collision
@@ -821,8 +827,8 @@ function run()
         adf, mdf = run!(models[i], cell_move!, model_step!, steps; adata = adata, mdata = mdata)
         adfname = "adf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
         mdfname = "mdf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
-        CSV.write("./data/results/" * adfname, adf)
-        CSV.write("./data/results/" * mdfname, mdf)
+        CSV.write("./data/" * adfname, adf)
+        CSV.write("./data/" * mdfname, mdf)
         println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
         #writedlm( "./data/newhamtestpeptidecountdata.csv",  models[i].encountered_peptides_count, ',')
         #writedlm( "./data/synapse/synapse2/25synapsegenes003volume.csv",  models[i].expressed_genes, ',')

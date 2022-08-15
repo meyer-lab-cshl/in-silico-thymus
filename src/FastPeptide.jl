@@ -65,17 +65,6 @@ function str2matr(st)
     s = reshape(s, 1, length(s))
 end
 
-function hamming(A::BitArray, B::BitArray)
-    #size(A) == size(B) || throw(DimensionMismatch("sizes of A and B must match"))
-    Ac,Bc = A.chunks, B.chunks
-    W = 0
-    for i = 1:(length(Ac)-1)
-        W += count_ones(Ac[i] ⊻ Bc[i])
-    end
-    W += count_ones(Ac[end] ⊻ Bc[end] & Base._msk_end(A))
-    return W
-end
-
 function stringhamming(A::String, B::String)
     counts = 0
     for i in eachindex(A)
