@@ -347,16 +347,18 @@ global const binding_matrices = [
 ]
 ];
 
+"""
+    run(peptfile::String, tcrfile::String)
+
+Open peptide file containing a list of peptide strings named `peptfile` and a TCR file containing a list of TCR strings named `tcrfile` 
+and run `calc_binding_strengths` for the peptides and TCRs found within them.
+"""
 function run(peptfile::String, tcrfile::String)
     pepts = readlines(open(peptfile))
-    tcrs = readlines(open(tcrfile))#readlines(open("./data/tcrs10000.txt"))
-    #strengths = Array{Cint,1}(undef, size(pepts))
-    #@time calc_binding_strengths(strengths, pepts, tcrs)
-    @time calc_binding_strengths(pepts, 9, length(pepts), tcrs, length(tcrs))
+    tcrs = readlines(open(tcrfile))
+    @time calc_binding_strengths(pepts, tcrs)
 end
 #run("./data/uniquepeptides.txt", "./data/tcrs40000.txt")
 
-#println(strengths)
-#println(length(strengths))
 end
 
