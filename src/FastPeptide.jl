@@ -1,8 +1,26 @@
 module FastPeptide
 using Random
 
-export calc_binding_strengths, stringhamming, fasthamming, str2matr
+export calc_binding_strengths, stringhamming, fasthamming
 
+global const AABITS = 5
+global const AAMASK = 31
+global const aa2code = [
+    0,    21,   1,    2,
+    3,    4,    5,    6,
+    7,    21,   8,    9,
+    10,   11,   21,   12,
+    13,   14,   15,   16,
+    21,   17,   18,   21,
+    19,   21
+]
+
+
+"""
+    str2peptide(str::String, len::Int)
+
+Convert the given String `str` of length `len` to its integer representation using AABITS and aa2code.
+"""
 function str2peptide(str::String, len::Int)
     pep = 0
     i = len
@@ -13,14 +31,11 @@ function str2peptide(str::String, len::Int)
     return pep
 end
 
-function read_peptides(peptstrings::Array{String})
-    peptides = Array{Int,1}(undef, 0)
-    @inbounds for str in peptstrings
-        push!(peptides, str2peptide(str, length(str)))
-    end
-    return peptides
-end
+"""
+    whamming(p1::Int, p2::Int, peplen::Int)
 
+Use Carl's weighted hamming distance algorithm to get the distance `dist` between peptides `p1` and `p2` that are of length `peplen`.
+"""
 function whamming(p1::Int, p2::Int, peplen::Int)
     dist = 1.0
     @inbounds for i in 1:peplen
@@ -32,8 +47,13 @@ function whamming(p1::Int, p2::Int, peplen::Int)
     return Int16(trunc(dist))
 end
 
+"""
+    calc_binding_strengths(peps::Array{String}, tcrs::Array{String})
+
+Calculate the binding strengths for an array of peptides `peps` and TCRs `tcrs`. Return a dictionary of peptide -> binding strength.
+"""
 function calc_binding_strengths(peps::Array{String}, tcrs::Array{String})
-    #bindingarray = Dict{String, Int16}()
+    bindingarray = Dict{String, Int16}()
     d = 0
     @inbounds for i in 1:length(peps)
         p1 = peps[i]
@@ -41,14 +61,19 @@ function calc_binding_strengths(peps::Array{String}, tcrs::Array{String})
         @inbounds for j in 1:length(tcrs)
             t1 = tcrs[j]
             d = whamming(str2peptide(t1, length(t1)), str2peptide(p1, length(p1)), peplen)
-            #bindingarray[i] = d
+            bindingarray[i] = d
             #if d >= 100
         end
     end
-    return d
-    #return bindingarray
+    #return d
+    return bindingarray
 end
 
+"""
+    calc_binding_strengths(peps::String, tcrs::String)
+
+Calculate the binding strength between a peptide `peps` and TCR `tcrs`. Returns that binding strength.
+"""
 function calc_binding_strengths(peps::String, tcrs::String)
     #bindingarray = Dict{String, Int16}()
     d = 0
@@ -59,12 +84,11 @@ function calc_binding_strengths(peps::String, tcrs::String)
     #return bindingarray
 end
 
-function str2matr(st)
-    s = split(st,"")
-    s = Array{String}(s)
-    s = reshape(s, 1, length(s))
-end
+"""
+    stringhamming(A::String, B::String)
 
+Calculate the hamming distance between String `A` and String `B`. Return that distance.
+"""
 function stringhamming(A::String, B::String)
     counts = 0
     for i in eachindex(A)
@@ -75,6 +99,13 @@ function stringhamming(A::String, B::String)
     return counts
 end
 
+"""
+    fasthamming(peps::Matrix{Int}, tcr, threshold::Int, reaction_dict::Dict{Array{Int}, Int}, min_strength::Int, finalcheck::Bool)
+
+Calculate the hamming distance between a TCR string `tcr` and a Matrix of peptides as integers `peps`. Check if the distance (reaction strength) is above the selection threshold `threshold` 
+and minimum strength required `min_strength`. `finalcheck` is used to indicate if it is a nonautoreactive thymocyte that is leaving the thymus being checked or not. 
+Returns a peptide -> reaction strength dictionary `reaction_dict`.
+"""
 function fasthamming(peps::Matrix{Int}, tcr, threshold::Int, reaction_dict::Dict{Array{Int}, Int}, min_strength::Int, finalcheck::Bool)
     res = peps .- tcr
     if size(res)[1] > 1
@@ -131,20 +162,7 @@ function fasthamming(peps::Matrix{Int}, tcr, threshold::Int, reaction_dict::Dict
     end
 end
 
-
-
-global const AABITS = 5
-global const AAMASK = 31
-global const aa2code = [
-    0,    21,   1,    2,
-    3,    4,    5,    6,
-    7,    21,   8,    9,
-    10,   11,   21,   12,
-    13,   14,   15,   16,
-    21,   17,   18,   21,
-    19,   21
-]
-
+# The 9x20x20 binding matrix used for more realistic calculations of binding strengths
 global const binding_matrices = [
 [[100, 79, 363, 311, 33, 142, 83, 83, 124, 67, 51, 69, 369, 141, 97, 92, 106, 103, 55, 35, ],
 [126, 100, 458, 392, 42, 179, 104, 104, 156, 85, 65, 87, 466, 179, 123, 116, 134, 130, 69, 44, ],
