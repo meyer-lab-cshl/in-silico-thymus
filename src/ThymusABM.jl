@@ -148,7 +148,7 @@ end
     n_tecs::Int = n_tecs                                                    # Int of number of mTECs to have in simulation
     n_thymocytes::Int = n_thymocytes                                        # Int of number of thymocytes to have in simulation
     n_dendritics::Int = n_dendritics                                        # Int of number of DCs to have in simulation
-    threshold::Int16 = threshold                                            # Int of negative selection threshold of thymocytes
+    threshold::Int = threshold                                              # Int of negative selection threshold of thymocytes
     peptides::Array = peptides                                              # Array of all possible peptides a mTEC/DC can present
     tcrs::Array = tcrs                                                      # Array of generated TCRs for thymocyte to randomly select from
     successful_interactions::Int = successful_interactions                  # Int of number of times a thymocyte was selected in an interaction with mTEC/DC
@@ -157,7 +157,7 @@ end
     autoreactive_thymocytes::Int = 0                                        # Int of number of thymocytes that were negatively selected or escaped
     nonautoreactive_thymocytes::Int = 0                                     # Int of number of thymocytes that were not autoreactive and can be assumed to have successfully exited the thymus
     total_thymocytes::Int = 0                                               # Int of total number of thymocytes that have entered simulation
-    treg_threshold::Float64 = treg_threshold                                # Float64 setting the threshold for a nonautoreactive thymocyte to be classified as a Treg
+    treg_threshold::Int = treg_threshold                                    # Float64 setting the threshold for a nonautoreactive thymocyte to be classified as a Treg
     num_tregs::Int = 0                                                      # Int of total number of Tregs that have successfully exited simulation
     tecs_present::Int = n_tecs                                              # Int of number of mTECs currently present in the simulation
     aa_matrix::NamedArray = aa_matrix                                       # NamedArray containing all possible interaction strengths between peptides and tcrs
@@ -189,7 +189,7 @@ Base.@kwdef mutable struct Parameters
     autoreactive_thymocytes::Int = 0                                        # Int of number of thymocytes that were negatively selected or escaped
     nonautoreactive_thymocytes::Int = 0                                     # Int of number of thymocytes that were not autoreactive and can be assumed to have successfully exited the thymus
     total_thymocytes::Int = 0                                               # Int of total number of thymocytes that have entered simulation
-    treg_threshold::Float64 = treg_threshold                                # Float64 setting the threshold for a nonautoreactive thymocyte to be classified as a Treg
+    treg_threshold::Int = treg_threshold                                    # Int setting the threshold for a nonautoreactive thymocyte to be classified as a Treg
     num_tregs::Int = 0                                                      # Int of total number of Tregs that have successfully exited simulation
     tecs_present::Int = n_tecs                                              # Int of number of mTECs currently present in the simulation
     synapse_interactions::Int = synapse_interactions                        # Int of total number of peptide:TCR reactions to calculate for one thymocyte:mTEC/DC interaction
@@ -297,6 +297,7 @@ function add_thymocytes!(model, n_thymocytes::Int, color::String, sizes::Float64
         steps_alive = 0
         reaction_levels = Dict{Array{Int}, Int}()
         death_label = false
+        treg = false
         if initial == true
             finalcheck = false
             num_interactions = rand(model.rng, 0:model.max_thymocyte_interactions - 1) #if want to randomize this, also have to randomize initial reaction levels
@@ -306,7 +307,7 @@ function add_thymocytes!(model, n_thymocytes::Int, color::String, sizes::Float64
                     peptindex = rand(model.rng, axes(rand_tec.antigens, 1), 1)
                     pept = rand_tec.antigens[peptindex, :]
                     #calculate_reaction_strength(pept, tcr, reaction_levels, model.matrix_type)
-                    death_label = fasthamming(pept, tcr, model.threshold, reaction_levels, model.min_strength, finalcheck)
+                    death_label, treg = fasthamming(pept, tcr, model.threshold, model.treg_threshold, reaction_levels, model.min_strength, finalcheck)
                 end
             end
         else
@@ -315,7 +316,6 @@ function add_thymocytes!(model, n_thymocytes::Int, color::String, sizes::Float64
 
         confined = false
         bind_location = (0.0,0.0,0.0)
-        treg = false
         thymocyte = Thymocyte(id, pos, vel, mass, :thymocyte, color, sizes, num_interactions, tcr, reaction_levels, death_label, confined, bind_location, treg, steps_alive)
         add_agent!(thymocyte, model)
         #set_color!(thymocyte)
@@ -525,7 +525,7 @@ function thymocyte_APC_interact!(a1::Union{Tec, Dendritic, Thymocyte}, a2::Union
     antigens = tec_agent.antigens[peptindex, :]
 
     finalcheck = false
-    thymocyte_agent.death_label = fasthamming(antigens, thymocyte_agent.tcr, model.threshold, thymocyte_agent.reaction_levels, model.min_strength, finalcheck)
+    thymocyte_agent.death_label, thymocyte_agent.treg = fasthamming(antigens, thymocyte_agent.tcr, model.threshold, model.treg_threshold, thymocyte_agent.reaction_levels, model.min_strength, finalcheck)
     thymocyte_agent.num_interactions += 1
     tec_agent.num_interactions += 1 
     update_tec_stage(tec_agent, model)
@@ -616,7 +616,7 @@ function model_step!(model) # happens after every agent has acted
                 push!(model.encountered_peptides_count, (length(agent.reaction_levels), agent.death_label))
                 model.deaths += 1
                 model.total_dead_thymocytes += 1
-                escaped = fasthamming(model.peptides, agent.tcr, model.threshold, agent.reaction_levels, model.min_strength, true)
+                escaped, treg = fasthamming(model.peptides, agent.tcr, model.threshold, model.treg_threshold, agent.reaction_levels, model.min_strength, true)
 
                 if agent.treg == true
                     model.num_tregs += 1
@@ -835,25 +835,24 @@ function run()
     end
 
 
-    #global parange = Dict(:threshold => 0:0.01:1)
-#= figure, adf, mdf = abm_data_exploration(
-    model2, cell_move!, model_step!, parange;
-    as = cell_sizes, ac = cell_colors, #adata = adata, alabels = alabels,
+#=     global parange = Dict(:threshold => 0:0.01:1)
+figure, adf, mdf = abmexploration(
+    models[1]; agent_step! = cell_move!, model_step! = model_step!, parange,
+    #as = cell_sizes, ac = cell_colors, #adata = adata, alabels = alabels,
     mdata = mdata, mlabels = mlabels)  =#
 
 #= abm_video(
     "thymus_abm_3Dvid_newtest.mp4",
-    model2,
+    models[1],
     cell_move!,
     model_step!;
-    frames = 2000,
-    ac = cell_colors,
-    as = cell_sizes,
-    spf = 1,
-    framerate = 100,
+    #recordkwargs=(compression = 1, profile = "high")
+    #frames = 200,
+    #ac = cell_colors,
+    #as = cell_sizes,
 ) =#
 end
-run()
+#run()
 
 
 end

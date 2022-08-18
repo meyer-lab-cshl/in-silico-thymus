@@ -106,14 +106,15 @@ Calculate the hamming distance between a TCR string `tcr` and a Matrix of peptid
 and minimum strength required `min_strength`. `finalcheck` is used to indicate if it is a nonautoreactive thymocyte that is leaving the thymus being checked or not. 
 Returns a peptide -> reaction strength dictionary `reaction_dict`.
 """
-function fasthamming(peps::Matrix{Int}, tcr, threshold::Int, reaction_dict::Dict{Array{Int}, Int}, min_strength::Int, finalcheck::Bool)
+function fasthamming(peps::Matrix{Int}, tcr, threshold::Int, treg_threshold::Int, reaction_dict::Dict{Array{Int}, Int}, min_strength::Int, finalcheck::Bool)
     res = peps .- tcr
     if size(res)[1] > 1
         matches = sum(x -> x == 0, res, dims=2)
+        death_label = false
+        treg_label = false
         # Add all of matches for each peptide to thymocyte memory dict
         # reaction_dict[peps[i]] = matches[i]]
         if finalcheck == false
-            death_label = false
             for i in 1:size(peps)[1]
                 if get(reaction_dict, Matrix(peps[i,:]'), 0) != 0 && matches[i] >= min_strength # if thymocyte has seen antigen before, add to its current reaction level
                     reaction_dict[Matrix(peps[i,:]')] += matches[i]
@@ -124,39 +125,47 @@ function fasthamming(peps::Matrix{Int}, tcr, threshold::Int, reaction_dict::Dict
                 end
                 if reaction_dict[Matrix(peps[i,:]')] >= threshold
                     death_label = true
+                elseif reaction_dict[Matrix(peps[i,:]')] >= treg_threshold
+                    treg_label = true
                 end
+
             end
-            return death_label
+            return death_label, treg_label
         else
             if any(match >= threshold for match in matches) # can count successful/unsuccessful interactions here maybe
-                return true
+                death_label = true
+                return death_label, treg_label
             else
-                return false
+                return death_label, treg_label
             end
         end
 
     else
         match = sum(x -> x == 0, res)
+        death_label = false
+        treg_label = false
         if finalcheck == false
-            death_label = false
             if get(reaction_dict, peps, 0) != 0 && match >= min_strength # if thymocyte has seen antigen before, add to its current reaction level
                 reaction_dict[peps] += match
             elseif match >= min_strength # otherwise, add antigen as a new entry to the reaction_dict dict
                 reaction_dict[peps] = match
             else
-                return false
+                return death_label, treg_label
             end
 
             if reaction_dict[peps] >= threshold
                 death_label = true
+            elseif reaction_dict[peps] >= treg_threshold
+                treg_label = true
             end
 
-            return death_label
+            return death_label, treg_label
         else
             if match >= threshold
-                return true
+                death_label = true
+                return death_label, treg_label
             else
-                return false
+                return death_label, treg_label
             end
         end
     end
