@@ -26,7 +26,7 @@ using ArgParse
 using LinearAlgebra
 using Distributions
 using TOML
-using GLMakie
+using CairoMakie
 #using Mmap
 
 ################## optimize checking of all peptides for escaped autoreactives #################
