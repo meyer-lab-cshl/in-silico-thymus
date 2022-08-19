@@ -8,3 +8,4 @@ rng = [1] # Random seed
 synapse_interactions = 10 # Amount of different pMHC:TCR reactivities to measure for one thymocyte-APC collision
 minimum_strength = 2 # THe minimum strength of a pMHC:TCR binding required to have a thymocyte "remember" the binding.
 matrixtype = "hamming" # Type of binding matrix to use
+video = false # True if running the ABM to obtain a video of it, false if not

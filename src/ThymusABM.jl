@@ -26,7 +26,7 @@ using ArgParse
 using LinearAlgebra
 using Distributions
 using TOML
-using CairoMakie
+using GLMakie
 #using Mmap
 
 ################## optimize checking of all peptides for escaped autoreactives #################
@@ -408,9 +408,9 @@ function initialize(;
     
     model = ABM(Union{Tec, Dendritic, Thymocyte}, space3d; properties, rng,)
     # Add agents to the model
-    add_tecs!(model, n_tecs, "#00ffff", 0.5, false)
-    add_dendritics!(model, n_dendritics, "#ffa500", 0.5)
-    add_thymocytes!(model, n_thymocytes, "#edf8e9", 0.2, true)
+    add_tecs!(model, n_tecs, "#00ffff", 0.005, false)
+    add_dendritics!(model, n_dendritics, "#ffa500", 0.005)
+    add_thymocytes!(model, n_thymocytes, "#edf8e9", 0.002, true)
 
     return model
 end
@@ -633,10 +633,10 @@ function model_step!(model) # happens after every agent has acted
     end
     if model.tecs_present < model.n_tecs # generate new tecs if some died
         tecs_missing = model.n_tecs - model.tecs_present
-        add_tecs!(model, tecs_missing, "#00c8ff", 0.5, true)
+        add_tecs!(model, tecs_missing, "#00c8ff", 0.005, true)
         model.tecs_present += tecs_missing
     end
-    add_thymocytes!(model, model.deaths, "#edf8e9", 0.2, false) # replenish thymocytes
+    add_thymocytes!(model, model.deaths, "#edf8e9", 0.002, false) # replenish thymocytes
     model.deaths = 0
     model.alive_thymocytes = count(i->(i.type == :thymocyte), allagents(model))
 end
@@ -757,7 +757,8 @@ function read_parameters(filename::String)
     num_medullas = params["num_medullas"]
     min_strength = params["minimum_strength"]
     matrixtype = params["matrixtype"]
-    return rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, min_strength, matrixtype
+    video = params["video"]
+    return rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, min_strength, matrixtype, video
 end
 
 check_stage_1(agent) = agent.stage == 1
@@ -784,7 +785,7 @@ function run()
     #n_thymocytes = parsed_args["n_thymocytes"], speed = parsed_args["thymocyte_speed"], threshold = parsed_args["selection_threshold"], dt = parsed_args["dt"], rng_seed = parsed_args["rng"], treg_threshold = parsed_args["treg_threshold"], 
     #synapse_interactions = parsed_args["synapse_interactions"])
 
-    rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, min_strength, matrixtype = read_parameters("./data/config.toml")
+    rng, speed, selection_threshold, treg_threshold, synapse_interactions, volume, steps, num_medullas, min_strength, matrixtype, video = read_parameters("./data/config.toml")
 
     if volume == "RANDOM"
         GM = 0.00016
@@ -823,36 +824,33 @@ function run()
     threshold = selection_threshold, dt = 1.0, rng_seed = rng[i], treg_threshold = treg_threshold, synapse_interactions = synapse_interactions, 
     min_strength = min_strength, matrix_type = matrixtype) for i in 1:num_medullas];
     #adf, mdf = ensemblerun!(models, cell_move!, model_step!, 1000; adata = adata, mdata = mdata, parallel = true)
-    @time Threads.@threads for i = 1:num_medullas
-        adf, mdf = run!(models[i], cell_move!, model_step!, steps; adata = adata, mdata = mdata)
-        adfname = "adf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
-        mdfname = "mdf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
-        CSV.write("./data/" * adfname, adf)
-        CSV.write("./data/" * mdfname, mdf)
-        println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
-        #writedlm( "./data/newhamtestpeptidecountdata.csv",  models[i].encountered_peptides_count, ',')
-        #writedlm( "./data/synapse/synapse2/25synapsegenes003volume.csv",  models[i].expressed_genes, ',')
+    if video == false
+        @time Threads.@threads for i = 1:num_medullas
+            adf, mdf = run!(models[i], cell_move!, model_step!, steps; adata = adata, mdata = mdata)
+            adfname = "adf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
+            mdfname = "mdf" * string(thymocytes[i]) * "thymocytes" * string(selection_threshold) * "threshold" * string(synapse_interactions) * "synapsecomplexes" * string(rng[i]) * "rngseed.csv"
+            CSV.write("./data/" * adfname, adf)
+            CSV.write("./data/" * mdfname, mdf)
+            println("Simulation complete. Data written to ThymusABM/data folder as " * adfname * " and " * mdfname)
+        end
+    else
+        plotkwargs = (;
+            ac = cell_colors, as = cell_sizes,
+        )
+        abmvideo(
+            "thymus.mp4",
+            models[1],  cell_move!, model_step!;
+            title = "Thymus", frames = 200,
+            plotkwargs...
+        )
     end
-
-
-#=     global parange = Dict(:threshold => 0:0.01:1)
-figure, adf, mdf = abmexploration(
+    #=     global parange = Dict(:threshold => 0:0.01:1)
+    figure, adf, mdf = abmexploration(
     models[1]; agent_step! = cell_move!, model_step! = model_step!, parange,
     #as = cell_sizes, ac = cell_colors, #adata = adata, alabels = alabels,
     mdata = mdata, mlabels = mlabels)  =#
-
-#= abm_video(
-    "thymus_abm_3Dvid_newtest.mp4",
-    models[1],
-    cell_move!,
-    model_step!;
-    #recordkwargs=(compression = 1, profile = "high")
-    #frames = 200,
-    #ac = cell_colors,
-    #as = cell_sizes,
-) =#
 end
-#run()
+run()
 
 
 end
