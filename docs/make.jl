@@ -2,7 +2,7 @@ push!(LOAD_PATH,"../src/")
 using Documenter, ThymusABM
 
 makedocs(sitename="My Documentation",
-	authors = "Ethan Mulle",
+	authors = ["Ethan Mulle", "Hannah Meyer"],
 	pages = [
 		"Home" => "index.md",
 		"Introduction" => "introduction.md",
@@ -10,4 +10,4 @@ makedocs(sitename="My Documentation",
 		]
 	)
 
-deploydocs(repo = "github.com/meyer-lab-cshl/ThymusABM.jl.git")
+deploydocs(repo = "github.com/meyer-lab-cshl/in-silico-thymus.git")
